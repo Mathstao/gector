@@ -28,7 +28,6 @@ def parse_m2_file(m2_file, source_file, target_file, annotator_id):
             offset = offset-(end-start)+len(cor)
         target_f.write(" ".join(cor_sent)+"\n")
         source_f.write(" ".join(sent[0].split()[1:])+"\n")
-    print('Processed {}'.format(m2_file))
     return None
 
 
@@ -50,6 +49,13 @@ if __name__ == "__main__":
             print(source_file)
             print(target_file)
             print()
+            if "lang8" in m2_file:
+                annotators = [0, 1, 2, 3, 4]
+            else:
+                annotators = [0]
+            for annotator_id in annotators:
+                parse_m2_file(m2_file, source_file, target_file, annotator_id)
+
 
 
 
