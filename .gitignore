@@ -133,3 +133,6 @@ dmypy.json
 .idea
 
 *.sh
+
+# Defined
+pretrain/
