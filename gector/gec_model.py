@@ -88,6 +88,7 @@ class GecBERTModel(object):
                                text_field_embedder=self._get_embbeder(weights_name, special_tokens_fix),
                                confidence=self.confidence
                                ).to(self.device)
+            print('Loading ', model_path)
             if torch.cuda.is_available():
                 model.load_state_dict(torch.load(model_path))
             else:

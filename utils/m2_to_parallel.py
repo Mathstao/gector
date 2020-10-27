@@ -6,7 +6,7 @@ def parse_m2_file(m2_file, source_file, target_file, annotator_id):
 
     # Do not apply edits with these error types
     skip = {"noop", "UNK", "Um"}
-    
+
     source_f = open(source_file, 'w', encoding='utf-8')
     target_f = open(target_file, 'w', encoding='utf-8')
 
@@ -19,7 +19,7 @@ def parse_m2_file(m2_file, source_file, target_file, annotator_id):
             edit = edit.split("|||")
             if edit[1] in skip: continue # Ignore certain edits
             coder = int(edit[-1])
-            if coder != args.id: continue # Ignore other coders
+            if coder != annotator_id: continue # Ignore other coders
             span = edit[0].split()[1:] # Ignore "A "
             start = int(span[0])
             end = int(span[1])
@@ -40,21 +40,34 @@ if __name__ == "__main__":
 
     save_path = "/home/citao/github/gector/dataset/"
     for ms in m2_source_list:
-        m2_files = glob.glob(os.path.join(ms, "./*.m2"))
+        m2_files = glob.glob(os.path.join(ms, "*.m2"))
         for m2_file in m2_files:
-            _index = m2_file.split('/')[-1]
-            source_file = os.path.join(save_path, _index.replace(".m2", ".source"))
-            target_file = os.path.join(save_path, _index.replace(".m2", ".source"))
-            print(m2_file)
-            print(source_file)
-            print(target_file)
-            print()
             if "lang8" in m2_file:
                 annotators = [0, 1, 2, 3, 4]
             else:
                 annotators = [0]
             for annotator_id in annotators:
-                parse_m2_file(m2_file, source_file, target_file, annotator_id)
+                _index = m2_file.split('/')[-1]
+                _index = _index.replace(".m2", ".{}.m2".format(annotator_id))
+                if "wi+locness" in m2_file:
+                    _index = "wil."+_index
+                source_file = os.path.join(save_path, _index.replace(".m2", ".source"))
+                target_file = os.path.join(save_path, _index.replace(".m2", ".target"))
+                # parse_m2_file(m2_file, source_file, target_file, annotator_id)
+                print(m2_file)
+                print(source_file)
+                print(target_file)
+                print()
+    # merge
+    for name in ['fce', 'lang8', 'wil']:
+        for part in ['train', 'dev', 'test']:
+            for dtype in ['source', 'target']:
+                merged_list = glob.glob(os.path.join(save_path, "{}*{}*{}".format(name, part, dtype)))
+                if merged_list != []:
+                    dest = os.path.join(save_path, '{}.{}.{}'.format(name, part, dtype))
+                    cmd = 'cat {} > {}'.format(' '.join(merged_list), dest)
+                    print(cmd)
+                    os.popen(cmd)
 
 
 
