@@ -1,4 +1,5 @@
 import os
+import logging
 from pathlib import Path
 
 
@@ -201,3 +202,37 @@ def get_weights_name(transformer_name, lowercase):
         return 'transfo-xl-wt103'
     if transformer_name == 'xlnet':
         return 'xlnet-base-cased'
+    
+def add_tokens_idx(text, source_tokens):
+    # Get source tokens list with (start_idx, end_idx)
+    # [['My', 0, 2],
+    #  ['namme', 3, 8],
+    #  ['is', 9, 11],
+    #  ['are', 12, 15],
+    #  ['was', 16, 19],
+    #  ['Citao', 20, 25],
+    #  ['.', 25, 26]]
+    tokens_with_idx = []
+    tmp_text = text[:]
+    accumulated_lenght = 0
+    for token in source_tokens:
+        word_start_idx = tmp_text.find(token) + accumulated_lenght
+        word_end_idx = word_start_idx + len(token)
+        tokens_with_idx.append([token, word_start_idx, word_end_idx])
+        accumulated_lenght = word_end_idx
+        tmp_text = text[word_end_idx:]
+    return tokens_with_idx
+
+
+def add_sents_idx(text, source_sentences):
+    # Get source sentences list with (start_idx, end_idx)
+    sents_with_idx = []
+    tmp_text = text[:]
+    accumulated_lenght = 0
+    for sent in source_sentences:
+        sent_start_idx = tmp_text.find(sent) + accumulated_lenght
+        sent_end_idx = sent_start_idx + len(sent)
+        sents_with_idx.append([sent, sent_start_idx, sent_end_idx])
+        accumulated_lenght = sent_end_idx
+        tmp_text = text[sent_end_idx:]
+    return sents_with_idx
