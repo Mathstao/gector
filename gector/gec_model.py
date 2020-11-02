@@ -334,94 +334,111 @@ class GecBERTModel(object):
             if not pred_ids:
                 break
 
-        ### Citao added ###
-        
-        for i in range(len(idxs_batch)):
-            L = len(full_batch[i])+1
-            idxs_batch[i][0] = idxs_batch[i][0][:L]
+#         ### Citao added ###
 
-        ###################
+#         # print(idxs_batch)
+#         for sent_id in range(len(idxs_batch)):
+#             L = len(full_batch[sent_id])+1
+#             for iter_id, iter_idxs in enumerate(idxs_batch[sent_id]):
+#                 idxs_batch[sent_id][iter_id] = idxs_batch[sent_id][iter_id][:L]
+#                 edit_names = [self.vocab.get_token_from_index(i, namespace='labels') for i in iter_idxs]
+#                 delete_num = sum([1 if i.startswith('$DELETE') else 0 for i in edit_names])
+#                 append_num = sum([1 if i.startswith('$APPEND') else 0 for i in edit_names])
+#                 L = L + (append_num - delete_num)
+#         # print(idxs_batch)
+
+#         ###################
 
         return final_batch, probabilities_batch, idxs_batch, error_probs_batch, total_updates
         # return final_batch, total_updates
 
-    def generate_edits_based_pred(self, source_tokens, iter_label_idxs):
-        tmp_tokens = ['__START__'] + source_tokens[:]
-        for label_idxs in iter_label_idxs:
-            label_names = [self.vocab.get_token_from_index(i, namespace='labels') for i in label_idxs]
-#             if len(tmp_tokens) != len(label_names):
-#                 print('ERROR')
-#             else:
-#                 i,j = 0,0
-#                 while i < len(label_names):
-#                     curr_label_name = label_names[i]
-#                     if curr_label_name == '$KEEP':
-#                         j+=1
-#                     elif curr_label_name.startswith('$APPEND'):
-#                         tmp_tokens = tmp_tokens[:j+1] + ['__PLACEHOLD__'] + tmp_tokens[j+1:]
-#                         j+=2
-#                     elif curr_label_name.startswith('$REPLACE') or curr_label_name.startswith('$TRANSFORM'):
-#                         tmp_tokens[j] = '__PLACEHOLD__'
-#                         j+=1
-#                     elif curr_label_name == '$DELETE':
-#                         tmp_tokens = tmp_tokens[:j] + tmp_tokens[j+1:]
-#                     else:
-#                         print('Unknown')
-#                     i+=1
-            Lmin = min(len(tmp_tokens), len(label_names))
-            tmp_tokens = tmp_tokens[:Lmin]
-            label_names = label_names[:Lmin]
-            if 1:
-                i,j = 0,0
-                while i < len(label_names):
-                    curr_label_name = label_names[i]
-                    if curr_label_name == '$KEEP':
-                        j+=1
-                    elif curr_label_name.startswith('$APPEND'):
-                        tmp_tokens = tmp_tokens[:j+1] + ['__PLACEHOLD__'] + tmp_tokens[j+1:]
-                        j+=2
-                    elif curr_label_name.startswith('$REPLACE') or curr_label_name.startswith('$TRANSFORM'):
-                        tmp_tokens[j] = '__PLACEHOLD__'
-                        j+=1
-                    elif curr_label_name == '$DELETE':
-                        tmp_tokens = tmp_tokens[:j] + tmp_tokens[j+1:]
-                    else:
-                        print('Unknown')
-                    i+=1
-        # Skip '__START__'
-        return tmp_tokens[1:]
 
-    def generate_edits_based_source(self, pred_tokens, iter_label_idxs):
-        tmp_tokens = ['__START__'] + pred_tokens[:]
-        for label_idxs in iter_label_idxs[::-1]:
-            label_names = [self.vocab.get_token_from_index(i, namespace='labels') for i in label_idxs]
-            if 1:
-                i = len(label_names)-1
-                j = len(tmp_tokens)-1
-                while i > 0:
-                    curr_label_name = label_names[i]
-                    if curr_label_name == '$KEEP':
-                        j-=1
-                    elif curr_label_name.startswith('$APPEND'):
+    def overlay_edit(self, placeholder_list, label_idxs):
+        new_placeholder_list = []
+        label_names = [self.vocab.get_token_from_index(i, namespace='labels') for i in label_idxs]
+        token_ptr = 0
+        label_ptr = 0
+        
+        while label_ptr < len(label_names) and token_ptr < len(placeholder_list):
 
-                        tmp_tokens = tmp_tokens[:j] + tmp_tokens[j+1:]
-                        j-=2
-                    elif curr_label_name.startswith('$REPLACE') or curr_label_name.startswith('$TRANSFORM'):
-                        tmp_tokens[j] = '__PLACEHOLD__'
-                        j-=1
-                    elif curr_label_name == '$DELETE':
-                        tmp_tokens = tmp_tokens[:j+1] + ['__PLACEHOLD__'] + tmp_tokens[j+1:]
-                    else:
-                        print('Unknown')
-                    i-=1
-        # Skip '__START__'
-        return tmp_tokens[1:]
+            if placeholder_list[token_ptr] == '__deleted__':
+                new_placeholder_list.append('__deleted__')
+                token_ptr += 1
+                continue
 
+            label = label_names[label_ptr]
+
+            if label == '$KEEP':
+                new_placeholder_list.append(placeholder_list[token_ptr])
+                label_ptr += 1
+                token_ptr += 1
+
+            elif label == '$DELETE':
+                meta = '__deleted__'
+                if placeholder_list[token_ptr] != '__appended__':
+                    new_placeholder_list.append(meta)
+                label_ptr += 1
+                token_ptr += 1
+
+            elif label.startswith('$REPLACE') or label.startswith('$TRANSFORM'):
+                new_placeholder_list.append('__changed__')
+                label_ptr += 1
+                token_ptr += 1
+                
+            elif label.startswith('$APPEND'):
+                new_placeholder_list.extend([placeholder_list[token_ptr], '__appended__'])
+                label_ptr += 1
+                token_ptr += 1
+
+            elif label in ['@@UNKNOWN@@', '@@PADDING@@']:
+                print(label)
+                label_ptr += 1
+                token_ptr += 1
+
+            else:
+                print('unknown', label)
+                label_ptr += 1
+                token_ptr += 1
+        
+        new_placeholder_list.extend(placeholder_list[token_ptr:])
+
+        return new_placeholder_list
+
+    def generate_edits_based_pred(self, pred_tokens, placeholder_list):
+        pred_tokens = ['__START__'] + pred_tokens
+        selected_placeholder_list = [i for i in placeholder_list if i != '__deleted__']
+        result = []
+        for token, ph in zip(pred_tokens, selected_placeholder_list):
+            if ph == '__raw__':
+                result.append(token)
+            else:
+                result.append('__PLACEHOLD__')
+        return result[1:]
+
+    def generate_edits_based_source(self, source_tokens, placeholder_list):
+        source_tokens = ['__START__'] + source_tokens
+        selected_placeholder_list = [i for i in placeholder_list if i != '__appended__']
+        result = []
+        for token, ph in zip(source_tokens, selected_placeholder_list):
+            if ph == '__raw__':
+                result.append(token)
+            else:
+                result.append('__PLACEHOLD__')
+        return result[1:]
 
     def generate_correct_detail(self, text, source_tokens, pred_tokens, iter_label_idxs):
-        source_tokens_with_idx = add_tokens_idx(text, source_tokens)
-        edits_based_pred = self.generate_edits_based_pred(source_tokens, iter_label_idxs)
-        edits_based_source = self.generate_edits_based_source(pred_tokens, iter_label_idxs)
+        placeholder_list = ['__raw__' for _ in range(1+len(source_tokens))] 
+        for label_idxs in iter_label_idxs:
+            placeholder_list = self.overlay_edit(placeholder_list, label_idxs)
+
+        edits_based_pred = self.generate_edits_based_pred(pred_tokens, placeholder_list)
+        edits_based_source = self.generate_edits_based_source(source_tokens, placeholder_list)
+
+        # print(len(source_tokens), source_tokens,'\n')
+        # print(len(edits_based_source), edits_based_source,'\n')
+
+        # print(len(pred_tokens), pred_tokens,'\n')
+        # print(len(edits_based_pred), edits_based_pred,'\n')
 
         # 初始化
         correct_details = []
@@ -431,28 +448,30 @@ class GecBERTModel(object):
         s = 0
         p = 0
 
+        source_tokens_with_idx = add_tokens_idx(text, source_tokens)
+
         while s < len(edits_based_source)-1 and p < len(edits_based_source)-1:
             if edits_based_source[s] == edits_based_pred[p] and edits_based_pred[p]!='__PLACEHOLD__':
                 s+=1
                 p+=1
+                continue
 
             while edits_based_source[s] == '__PLACEHOLD__':
-                if source_start_idx == 0:
+                if source_end_idx == 0:
                     source_start_idx = source_tokens_with_idx[s][1]
                     source_end_idx = source_tokens_with_idx[s][2]
                 else:
                     source_end_idx = source_tokens_with_idx[s][2]
                 s += 1
-            
+
             while edits_based_pred[p] == '__PLACEHOLD__':
                 pred_subgroup.append(pred_tokens[p])
                 p += 1
-            
+
             if source_end_idx != 0 and pred_subgroup != []:
                 source_substr = text[source_start_idx:source_end_idx] 
                 pred_substr = ' '.join(pred_subgroup)
-                logging.info('{} -> {}'.format(source_substr, pred_substr))
-                logging.info("index[{}:{}]".format(source_start_idx, source_end_idx))
+                logging.info("index[{}:{}] {} -> {}".format(source_start_idx, source_end_idx, source_substr, pred_substr))
                 correct_details.append([source_substr, pred_substr, [source_start_idx, source_end_idx]])
                 s+=1
                 p+=1
@@ -462,7 +481,6 @@ class GecBERTModel(object):
                 pred_subgroup = []
 
             elif source_end_idx != 0 and pred_subgroup == []:
-                # print('delete')
                 if s!=0:
                     # (source_substr + source_tokens[s]) -> pred_tokens[p]
                     _, _, source_end_idx = source_tokens_with_idx[s]
@@ -471,17 +489,16 @@ class GecBERTModel(object):
                     _, source_start_idx, _ = source_tokens_with_idx[s-1]
                 source_substr = text[source_start_idx:source_end_idx] 
                 pred_substr = pred_tokens[p]
-                logging.info('{} -> {}'.format(source_substr, pred_substr))
-                logging.info("index[{}:{}]".format(source_start_idx, source_end_idx))
+                logging.info("index[{}:{}] {} -> {}".format(source_start_idx, source_end_idx, source_substr, pred_substr))
                 correct_details.append([source_substr, pred_substr, [source_start_idx, source_end_idx]])
                 s+=1
                 p+=1
                 # 初始化
                 source_start_idx = 0
                 source_end_idx = 0
-                    
+                pred_subgroup = []
+
             elif source_end_idx == 0 and pred_subgroup != []:
-                # print('append')
                 if p!=0:
                     # source_tokens[s-1] -> pred_tokens[p-1-len(pred_subgroup)] + pred_subgroup
                     _, source_start_idx, source_end_idx = source_tokens_with_idx[s-1]
@@ -491,17 +508,19 @@ class GecBERTModel(object):
                     _, source_start_idx, source_end_idx = source_tokens_with_idx[s]
                     pred_substr = ' '.join( pred_subgroup + [pred_tokens[p]])
                 source_substr = text[source_start_idx:source_end_idx] 
-                logging.info('{} -> {}'.format(source_substr, pred_substr))
-                logging.info("index[{}:{}]".format(source_start_idx, source_end_idx))
+                logging.info("index[{}:{}] {} -> {}".format(source_start_idx, source_end_idx, source_substr, pred_substr))
                 correct_details.append([source_substr, pred_substr, [source_start_idx, source_end_idx]])
                 s+=1
                 p+=1
                 # 初始化
+                source_start_idx = 0
+                source_end_idx = 0
                 pred_subgroup = []
-
+                
             else:
                 s+=1
                 p+=1
-
+        
+        # deduplication
+        correct_details = [c for c in correct_details if c[0]!=c[1]]
         return correct_details
-

@@ -21,7 +21,7 @@ model = GecBERTModel(
 
 class GECToR(tornado.web.RequestHandler):
     def post(self):
-        resp = {'status': True, 'data': '', 'corrections': []}
+        resp = {'status': True, 'data': '', 'corrections': [], 'orig_tokens': [], 'cor_tokens': []}
         try:
             data = json.loads(self.request.body)
             text = data['text']
@@ -54,10 +54,18 @@ class GECToR(tornado.web.RequestHandler):
             correct_details = []
             corrections = []
             source_sents_with_idx = add_sents_idx(text, sentences)
-
+            
             for sent, source_tokens, pred_tokens, iter_label_idxs in zip(sentences, batch, preds, idxs_batch):
-                detail = model.generate_correct_detail(sent, source_tokens, pred_tokens, iter_label_idxs)
-                correct_details.append(detail)
+                try:
+                    detail = model.generate_correct_detail(sent, source_tokens, pred_tokens, iter_label_idxs)
+                    correct_details.append(detail)
+                except Exception as e:
+                    logging.error(e, exc_info=True)
+                    print('********'*5)
+                    print(sent)
+                    print(source_tokens)
+                    print(pred_tokens)
+                    print(iter_label_idxs)
             
 
             global_correct_details = deepcopy(correct_details)
@@ -84,13 +92,16 @@ class GECToR(tornado.web.RequestHandler):
             correct_text = ''.join(char_list)
 
             resp['corrections'] = corrections
-            resp['data'] = correct_text            
+            resp['data'] = correct_text
+            resp['orig_tokens'] = batch
+            resp['cor_tokens'] = preds
         except:
+            print('******\n\n{}\n\n******'.format(text))
             logging.error('Processing failed.', exc_info=True)
             resp['status'] = False
         finally:
             self.write(json.dumps(resp))
-            logging.info("\nInput[{}]\nOutput[{}]\nCorrections[{}]".format(text, correct_text, corrections))
+            logging.info("\nInput[{}]\nOutput[{}]\nCorrections[{}]".format(text, resp['data'], resp['corrections']))
 
 def make_app():
     return tornado.web.Application([
