@@ -99,7 +99,8 @@ class GecBERTModel(object):
                                                  map_location=torch.device('cpu')))
             model.eval()
             self.models.append(model)
-        self.spell_checker = SymSpellChecker()
+        # self.spell_checker = SymSpellChecker()
+        self.spell_checker = HunspellChekcer
 
     @staticmethod
     def _get_model_data(model_path):

@@ -1,6 +1,6 @@
 import logging
 from symspellpy import SymSpell, Verbosity
-
+from hunspell import Hunspell
 
 class SymSpellChecker(object):
 
@@ -17,3 +17,18 @@ class SymSpellChecker(object):
             return cor_word
         return word
 
+
+class HunspellChekcer(object):
+
+    def __init__(self):
+        self.checker = Hunspell()
+
+    def correct(self, word):
+        if self.checker.spell(word) == True:
+            return word
+        else:
+            res = self.checker.suggest(word)
+            if res:
+                return res[0]
+            else:
+                return word
