@@ -18,9 +18,12 @@ from gector.seq2labels_model import Seq2Labels
 from gector.wordpiece_indexer import PretrainedBertIndexer
 from utils.helpers import PAD, UNK, get_target_sent_by_edits, add_tokens_idx, START_TOKEN
 
+from spell_checker import SymSpellChecker
+
 logging.getLogger("werkzeug").setLevel(logging.ERROR)
 logger = logging.getLogger(__file__)
 
+SPELL_CHECK_INDEX = 5003
 
 def get_weights_name(transformer_name, lowercase):
     if transformer_name == 'bert' and lowercase:
@@ -96,6 +99,7 @@ class GecBERTModel(object):
                                                  map_location=torch.device('cpu')))
             model.eval()
             self.models.append(model)
+        self.spell_checker = SymSpellChecker()
 
     @staticmethod
     def _get_model_data(model_path):
@@ -288,7 +292,7 @@ class GecBERTModel(object):
             all_results.append(get_target_sent_by_edits(tokens, edits))
         return all_results
 
-    def handle_batch(self, full_batch):
+    def handle_batch(self, full_batch, add_spell_check):
         """
         Handle batch of requests.
         """
@@ -303,6 +307,25 @@ class GecBERTModel(object):
         idxs_batch = [[] for i in range(len(final_batch))]
         error_probs_batch = [[] for i in range(len(final_batch))]
 
+        if add_spell_check:
+            spell_corr_batch = []
+            spell_corr_idxs = []
+            for tokens in final_batch:
+                spell_corr_tokens = []
+                # The start placeholder will not be corrected by spell checker in all time.
+                iter_idxs = [0]
+                for word in tokens:
+                    corr_word = self.spell_checker.correct(word)
+                    if word == corr_word:
+                        spell_corr_tokens.append(corr_word)
+                        iter_idxs.append(SPELL_CHECK_INDEX)
+                    else:
+                        spell_corr_tokens.append(word)
+                        iter_idxs.append(0)
+                spell_corr_batch.append(spell_corr_tokens)
+                spell_corr_idxs.append(iter_idxs)
+            final_batch = spell_corr_batch
+
         for n_iter in range(self.iterations):
 
             orig_batch = [final_batch[i] for i in pred_ids]
@@ -315,7 +338,7 @@ class GecBERTModel(object):
 
             pred_batch = self.postprocess_batch(orig_batch, probabilities,
                                                 idxs, error_probs)
-                
+
             for pid, to_add in zip(pred_ids, probabilities):
                 probabilities_batch[pid].append(to_add)
             for pid, to_add in zip(pred_ids, idxs):
@@ -348,6 +371,9 @@ class GecBERTModel(object):
 #         # print(idxs_batch)
 
 #         ###################
+
+        if add_spell_check:
+            idxs_batch = [ [to_add]+exist for to_add, exist in zip(spell_corr_idxs, idxs_batch)]
 
         return final_batch, probabilities_batch, idxs_batch, error_probs_batch, total_updates
         # return final_batch, total_updates
