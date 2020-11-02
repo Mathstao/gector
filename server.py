@@ -25,7 +25,8 @@ class GECToR(tornado.web.RequestHandler):
         try:
             data = json.loads(self.request.body)
             text = data['text']
-            
+            add_spell_check = data.get('add_spell_check', False)
+
             batch = []
             doc = nlp(text)
             sentences = []
@@ -39,7 +40,7 @@ class GECToR(tornado.web.RequestHandler):
                 
 
             # batch call
-            preds, _, idxs_batch, _, cnt = model.handle_batch(batch)
+            preds, _, idxs_batch, _, cnt = model.handle_batch(batch, add_spell_check)
 
             # # singel call
             # preds = []

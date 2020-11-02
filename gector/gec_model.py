@@ -18,12 +18,12 @@ from gector.seq2labels_model import Seq2Labels
 from gector.wordpiece_indexer import PretrainedBertIndexer
 from utils.helpers import PAD, UNK, get_target_sent_by_edits, add_tokens_idx, START_TOKEN
 
-from spell_checker import SymSpellChecker
+from gector.spell_checker import SymSpellChecker
 
 logging.getLogger("werkzeug").setLevel(logging.ERROR)
 logger = logging.getLogger(__file__)
 
-SPELL_CHECK_INDEX = 5003
+SPELL_CHECK_INDEX = 17
 
 def get_weights_name(transformer_name, lowercase):
     if transformer_name == 'bert' and lowercase:
@@ -316,7 +316,7 @@ class GecBERTModel(object):
                 iter_idxs = [0]
                 for word in tokens:
                     corr_word = self.spell_checker.correct(word)
-                    if word == corr_word:
+                    if word != corr_word:
                         spell_corr_tokens.append(corr_word)
                         iter_idxs.append(SPELL_CHECK_INDEX)
                     else:
@@ -325,7 +325,7 @@ class GecBERTModel(object):
                 spell_corr_batch.append(spell_corr_tokens)
                 spell_corr_idxs.append(iter_idxs)
             final_batch = spell_corr_batch
-
+        print(final_batch)
         for n_iter in range(self.iterations):
 
             orig_batch = [final_batch[i] for i in pred_ids]
