@@ -18,7 +18,7 @@ class SymSpellChecker(object):
         return word
 
 
-class HunspellChekcer(object):
+class HunspellChecker(object):
 
     def __init__(self):
         self.checker = Hunspell()

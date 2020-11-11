@@ -14,8 +14,10 @@ nlp = spacy.load("en")
 model = GecBERTModel(
     vocab_path = "./data/output_vocabulary",
     model_paths = ["./pretrain/roberta_1_gector.th"],
+    # model_paths = ["./pretrain/bert_0_gector.th", "./pretrain/roberta_1_gector.th", "./pretrain/xlnet_0_gector.th"],
     model_name = "roberta",
     is_ensemble = False,
+    iterations = 5,
 )
 
 
@@ -113,6 +115,6 @@ def make_app():
 if __name__ == "__main__" :
     app = make_app()
     logging.info("start the ocr server")
-    app.listen(8890)
+    app.listen(8895)
     tornado.ioloop.IOLoop.current().start()
 

@@ -3,7 +3,7 @@ import logging
 import os
 import sys
 from time import time
-
+import numpy as np
 import torch
 from allennlp.data.dataset import Batch
 from allennlp.data.fields import TextField
@@ -18,7 +18,7 @@ from gector.seq2labels_model import Seq2Labels
 from gector.wordpiece_indexer import PretrainedBertIndexer
 from utils.helpers import PAD, UNK, get_target_sent_by_edits, add_tokens_idx, START_TOKEN
 
-from gector.spell_checker import SymSpellChecker
+from gector.spell_checker import SymSpellChecker, HunspellChecker
 
 logging.getLogger("werkzeug").setLevel(logging.ERROR)
 logger = logging.getLogger(__file__)
@@ -100,7 +100,7 @@ class GecBERTModel(object):
             model.eval()
             self.models.append(model)
         # self.spell_checker = SymSpellChecker()
-        self.spell_checker = HunspellChekcer
+        self.spell_checker = HunspellChecker()
 
     @staticmethod
     def _get_model_data(model_path):
@@ -144,6 +144,15 @@ class GecBERTModel(object):
             batch = util.move_to_device(batch.as_tensor_dict(), 0 if torch.cuda.is_available() else -1)
             with torch.no_grad():
                 prediction = model.forward(**batch)
+                for k in ['class_probabilities_labels', 'class_probabilities_d_tags']:
+                    v = prediction[k]
+#                     # prediction detail [Citao]
+#                     print(k)
+#                     print(v.shape)
+#                     print(v)
+#                     for i in v[0]:
+#                         print(np.argsort(list(i))[::-1][:20])
+#                     print('-')
             predictions.append(prediction)
 
         preds, idx, error_probs = self._convert(predictions)
@@ -293,7 +302,7 @@ class GecBERTModel(object):
             all_results.append(get_target_sent_by_edits(tokens, edits))
         return all_results
 
-    def handle_batch(self, full_batch, add_spell_check):
+    def handle_batch(self, full_batch, add_spell_check, debug):
         """
         Handle batch of requests.
         """
@@ -307,17 +316,20 @@ class GecBERTModel(object):
         probabilities_batch = [[] for i in range(len(final_batch))]
         idxs_batch = [[] for i in range(len(final_batch))]
         error_probs_batch = [[] for i in range(len(final_batch))]
-
         if add_spell_check:
             spell_corr_batch = []
             spell_corr_idxs = []
+            spell_corr_probs = []
             for tokens in final_batch:
                 spell_corr_tokens = []
                 # The start placeholder will not be corrected by spell checker in all time.
                 iter_idxs = [0]
                 for word in tokens:
-                    corr_word = self.spell_checker.correct(word)
-                    if word != corr_word:
+                    if len(word) < 5:
+                        corr_word = word
+                    else:
+                        corr_word = self.spell_checker.correct(word)
+                    if word.lower() != corr_word.lower():
                         spell_corr_tokens.append(corr_word)
                         iter_idxs.append(SPELL_CHECK_INDEX)
                     else:
@@ -325,8 +337,12 @@ class GecBERTModel(object):
                         iter_idxs.append(0)
                 spell_corr_batch.append(spell_corr_tokens)
                 spell_corr_idxs.append(iter_idxs)
+                spell_corr_probs.append([1]*len(iter_idxs))
+            if final_batch!=spell_corr_batch:
+                print('**********************')
+                print(final_batch)
+                print(spell_corr_batch)
             final_batch = spell_corr_batch
-        print(final_batch)
         for n_iter in range(self.iterations):
 
             orig_batch = [final_batch[i] for i in pred_ids]
@@ -374,7 +390,8 @@ class GecBERTModel(object):
 #         ###################
 
         if add_spell_check:
-            idxs_batch = [ [to_add]+exist for to_add, exist in zip(spell_corr_idxs, idxs_batch)]
+            idxs_batch = [[to_add]+exist for to_add, exist in zip(spell_corr_idxs, idxs_batch)]
+            probabilities_batch = [[to_add]+exist for to_add, exist in zip(spell_corr_probs, idxs_batch)]
 
         return final_batch, probabilities_batch, idxs_batch, error_probs_batch, total_updates
         # return final_batch, total_updates
