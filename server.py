@@ -7,7 +7,7 @@ from gector.gec_model import GecBERTModel
 from utils.helpers import add_sents_idx
 from copy import deepcopy
 
-logging.basicConfig(format='[%(levelname)s] %(asctime)s - %(filename)s[line:%(lineno)d]: %(message)s',level=logging.INFO)
+logging.basicConfig(format='%(levelname)s: [%(asctime)s][%(filename)s:%(lineno)d] %(message)s',level=logging.INFO)
 
 nlp = spacy.load("en")
 
@@ -23,7 +23,8 @@ model = GecBERTModel(
 
 class GECToR(tornado.web.RequestHandler):
     def post(self):
-        resp = {'status': True, 'data': '', 'corrections': [], 'orig_tokens': [], 'cor_tokens': []}
+        # resp = {'status': True, 'data': '', 'corrections': [], 'orig_tokens': [], 'cor_tokens': []}
+        resp ={}
         try:
             data = json.loads(self.request.body)
             text = data['text']
@@ -102,14 +103,19 @@ class GECToR(tornado.web.RequestHandler):
                     offset += len(target) - len(source)
             correct_text = ''.join(char_list)
 
+            resp['status'] = True
+            resp['input'] = text
+            resp['output'] = correct_text
             resp['corrections'] = corrections
-            resp['data'] = correct_text
-            resp['orig_tokens'] = batch
-            resp['cor_tokens'] = preds
+            # resp['data'] = correct_text
+            # resp['orig_tokens'] = batch
+            # resp['cor_tokens'] = preds
         except:
-            print('******\n\n{}\n\n******'.format(text))
-            logging.error('Processing failed.', exc_info=True)
+            logging.error('Processing failed.\n******\n\n{}\n\n******'.format(text), exc_info=True)
             resp['status'] = False
+            resp['input'] = text
+            resp['output'] = text
+            resp['corrections'] = []
         finally:
             self.write(json.dumps(resp))
             logging.info("\nInput[{}]\nOutput[{}]\nCorrections[{}]".format(text, resp['data'], resp['corrections']))
@@ -122,7 +128,7 @@ def make_app():
 
 if __name__ == "__main__" :
     app = make_app()
-    logging.info("start the ocr server")
-    app.listen(8895)
+    logging.info("start the gec server")
+    app.listen(8890)
     tornado.ioloop.IOLoop.current().start()
 
