@@ -17,7 +17,7 @@ model = GecBERTModel(
     # model_paths = ["./pretrain/bert_0_gector.th", "./pretrain/roberta_1_gector.th", "./pretrain/xlnet_0_gector.th"],
     model_name = "roberta",
     is_ensemble = False,
-    iterations = 5,
+    iterations = 3,
 )
 
 
@@ -27,8 +27,12 @@ class GECToR(tornado.web.RequestHandler):
         try:
             data = json.loads(self.request.body)
             text = data['text']
-            add_spell_check = data.get('add_spell_check', False)
+            config = {}
+            for field in ['add_spell_check', 'iterations', 'min_probability', 'min_error_probability']:
+                if field in data:
+                    config[field] = data[field]
 
+            # tokenize the input text
             batch = []
             doc = nlp(text)
             sentences = []
@@ -39,10 +43,15 @@ class GECToR(tornado.web.RequestHandler):
                     tokens.append(token.text)
                 tokens = [i.strip() for i in tokens if i.strip()]
                 batch.append(tokens)
-                
 
             # batch call
-            preds, _, idxs_batch, _, cnt = model.handle_batch(batch, add_spell_check)
+            preds, probabilities_batch, idxs_batch, error_probs_batch, total_updates = model.handle_batch(full_batch=batch, config=config, debug=False)
+
+            print(preds)
+            print(probabilities_batch)
+            print(idxs_batch)
+            print(error_probs_batch)
+            print(total_updates)
 
             # # singel call
             # preds = []
@@ -52,7 +61,6 @@ class GECToR(tornado.web.RequestHandler):
             #     preds.append(single_preds[0])
             #     idxs_batch.append(single_idxs_batch[0])
 
-            
             # fetch correction detail
             correct_details = []
             corrections = []

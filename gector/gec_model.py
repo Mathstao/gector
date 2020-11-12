@@ -32,14 +32,14 @@ def get_weights_name(transformer_name, lowercase):
         return 'bert-base-cased'
     if transformer_name == 'distilbert':
         if not lowercase:
-            print('Warning! This model was trained only on uncased sentences.')
+            logging.warning('Warning! This model was trained only on uncased sentences.')
         return 'distilbert-base-uncased'
     if transformer_name == 'albert':
         if not lowercase:
-            print('Warning! This model was trained only on uncased sentences.')
+            logging.warning('Warning! This model was trained only on uncased sentences.')
         return 'albert-base-v1'
     if lowercase:
-        print('Warning! This model was trained only on cased sentences.')
+        logging.warning('Warning! This model was trained only on cased sentences.')
     if transformer_name == 'roberta':
         return 'roberta-base'
     if transformer_name == 'gpt2':
@@ -91,7 +91,7 @@ class GecBERTModel(object):
                                text_field_embedder=self._get_embbeder(weights_name, special_tokens_fix),
                                confidence=self.confidence
                                ).to(self.device)
-            print('Loading ', model_path)
+            logging.info('Loading ', model_path)
             if torch.cuda.is_available():
                 model.load_state_dict(torch.load(model_path))
             else:
@@ -110,7 +110,7 @@ class GecBERTModel(object):
 
     def _restore_model(self, input_path):
         if os.path.isdir(input_path):
-            print("Model could not be restored from directory", file=sys.stderr)
+            logging.error("Model could not be restored from directory", file=sys.stderr)
             filenames = []
         else:
             filenames = [input_path]
@@ -123,7 +123,7 @@ class GecBERTModel(object):
                                               map_location=lambda storage,
                                                                   loc: storage)
             except:
-                print(f"{model_path} is not valid model", file=sys.stderr)
+                logging.error(f"{model_path} is not valid model", file=sys.stderr)
             own_state = self.model.state_dict()
             for name, weights in loaded_model.items():
                 if name not in own_state:
@@ -135,7 +135,7 @@ class GecBERTModel(object):
                         own_state[name] += weights
                 except RuntimeError:
                     continue
-        print("Model is restored", file=sys.stderr)
+        logging.info("Model is restored", file=sys.stderr)
 
     def predict(self, batches):
         t11 = time()
@@ -158,13 +158,13 @@ class GecBERTModel(object):
         preds, idx, error_probs = self._convert(predictions)
         t55 = time()
         if self.log:
-            print(f"Inference time {t55 - t11}")
+            logging.info(f"Inference time {t55 - t11}")
         return preds, idx, error_probs
 
-    def get_token_action(self, token, index, prob, sugg_token):
+    def get_token_action(self, token, index, prob, sugg_token, min_probability):
         """Get lost of suggested actions for token."""
         # cases when we don't need to do anything
-        if prob < self.min_probability or sugg_token in [UNK, PAD, '$KEEP']:
+        if prob < min_probability or sugg_token in [UNK, PAD, '$KEEP']:
             return None
 
         if sugg_token.startswith('$REPLACE_') or sugg_token.startswith('$TRANSFORM_') or sugg_token == '$DELETE':
@@ -260,7 +260,7 @@ class GecBERTModel(object):
         return final_batch, new_pred_ids, total_updated
 
     def postprocess_batch(self, batch, all_probabilities, all_idxs,
-                          error_probs,
+                          error_probs, min_probability, min_error_probability,
                           max_len=50):
         all_results = []
         noop_index = self.vocab.get_token_index("$KEEP", "labels")
@@ -277,7 +277,7 @@ class GecBERTModel(object):
                 continue
 
             # skip whole sentence if probability of correctness is not high
-            if error_prob < self.min_error_probability:
+            if error_prob < min_error_probability:
                 all_results.append(tokens)
                 continue
 
@@ -291,10 +291,8 @@ class GecBERTModel(object):
                 if idxs[i] == noop_index:
                     continue
 
-                sugg_token = self.vocab.get_token_from_index(idxs[i],
-                                                             namespace='labels')
-                action = self.get_token_action(token, i, probabilities[i],
-                                               sugg_token)
+                sugg_token = self.vocab.get_token_from_index(idxs[i], namespace='labels')
+                action = self.get_token_action(token, i, probabilities[i], sugg_token, min_probability)
                 if not action:
                     continue
 
@@ -302,10 +300,16 @@ class GecBERTModel(object):
             all_results.append(get_target_sent_by_edits(tokens, edits))
         return all_results
 
-    def handle_batch(self, full_batch, add_spell_check, debug):
+    def handle_batch(self, full_batch, config, debug): 
         """
         Handle batch of requests.
         """
+        # overwrite the predict config
+        add_spell_check = config.get('add_spell_check', False)
+        iterations = config.get('iterations', self.iterations)
+        min_probability = config.get('min_probability', self.min_probability)
+        min_error_probability = config.get('min_error_probability', self.min_error_probability)
+
         final_batch = full_batch[:]
         batch_size = len(full_batch)
         prev_preds_dict = {i: [final_batch[i]] for i in range(len(final_batch))}
@@ -338,12 +342,13 @@ class GecBERTModel(object):
                 spell_corr_batch.append(spell_corr_tokens)
                 spell_corr_idxs.append(iter_idxs)
                 spell_corr_probs.append([1]*len(iter_idxs))
-            if final_batch!=spell_corr_batch:
-                print('**********************')
-                print(final_batch)
-                print(spell_corr_batch)
+            # if final_batch!=spell_corr_batch:
+            #     print('**********************')
+            #     print(final_batch)
+            #     print(spell_corr_batch)
             final_batch = spell_corr_batch
-        for n_iter in range(self.iterations):
+
+        for n_iter in range(iterations):
 
             orig_batch = [final_batch[i] for i in pred_ids]
 
@@ -354,7 +359,8 @@ class GecBERTModel(object):
             probabilities, idxs, error_probs = self.predict(sequences)
 
             pred_batch = self.postprocess_batch(orig_batch, probabilities,
-                                                idxs, error_probs)
+                                                idxs, error_probs,
+                                                min_probability, min_error_probability)
 
             for pid, to_add in zip(pred_ids, probabilities):
                 probabilities_batch[pid].append(to_add)
@@ -364,7 +370,7 @@ class GecBERTModel(object):
                 error_probs_batch[pid].append(to_add)
 
             if self.log:
-                print(f"Iteration {n_iter + 1}. Predicted {round(100*len(pred_ids)/batch_size, 1)}% of sentences.")
+                logging.info(f"Iteration {n_iter + 1}. Predicted {round(100*len(pred_ids)/batch_size, 1)}% of sentences.")
 
             final_batch, pred_ids, cnt = \
                 self.update_final_batch(final_batch, pred_ids, pred_batch,
@@ -435,12 +441,12 @@ class GecBERTModel(object):
                 token_ptr += 1
 
             elif label in ['@@UNKNOWN@@', '@@PADDING@@']:
-                print(label)
+                logging.info('Specific label [{}]'.format(label))
                 label_ptr += 1
                 token_ptr += 1
 
             else:
-                print('unknown', label)
+                logging.info('Unknown label [{}]'.format(label))
                 label_ptr += 1
                 token_ptr += 1
         
