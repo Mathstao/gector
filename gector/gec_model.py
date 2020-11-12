@@ -91,7 +91,7 @@ class GecBERTModel(object):
                                text_field_embedder=self._get_embbeder(weights_name, special_tokens_fix),
                                confidence=self.confidence
                                ).to(self.device)
-            logging.info('Loading ', model_path)
+            logging.info('Loading {}'.format(', '.join(model_path)))
             if torch.cuda.is_available():
                 model.load_state_dict(torch.load(model_path))
             else:
@@ -110,7 +110,7 @@ class GecBERTModel(object):
 
     def _restore_model(self, input_path):
         if os.path.isdir(input_path):
-            logging.error("Model could not be restored from directory", file=sys.stderr)
+            logging.error("Model could not be restored from directory: {}".format(input_path))
             filenames = []
         else:
             filenames = [input_path]
@@ -123,7 +123,7 @@ class GecBERTModel(object):
                                               map_location=lambda storage,
                                                                   loc: storage)
             except:
-                logging.error(f"{model_path} is not valid model", file=sys.stderr)
+                logging.error("{} is not valid model".format(input_path))
             own_state = self.model.state_dict()
             for name, weights in loaded_model.items():
                 if name not in own_state:
@@ -135,7 +135,7 @@ class GecBERTModel(object):
                         own_state[name] += weights
                 except RuntimeError:
                     continue
-        logging.info("Model is restored", file=sys.stderr)
+        logging.info("Model is restored")
 
     def predict(self, batches):
         t11 = time()
@@ -158,7 +158,7 @@ class GecBERTModel(object):
         preds, idx, error_probs = self._convert(predictions)
         t55 = time()
         if self.log:
-            logging.info(f"Inference time {t55 - t11}")
+            logging.info("Inference time {}".format(t55-t11))
         return preds, idx, error_probs
 
     def get_token_action(self, token, index, prob, sugg_token, min_probability):
