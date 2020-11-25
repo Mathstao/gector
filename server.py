@@ -150,7 +150,7 @@ class GECToR(tornado.web.RequestHandler):
             resp['debug_info'] = ''
         finally:
             self.write(json.dumps(resp))
-            logging.info("\nInput[{}]\nOutput[{}]\nCorrections[{}]".format(resp['input'], resp['output'], resp['corrections']))
+            logging.info("\nInput  [{}]\nOutput [{}]\nCorrections [{}]".format(resp['input'], resp['output'], resp['corrections']))
 
 def make_app():
     return tornado.web.Application([

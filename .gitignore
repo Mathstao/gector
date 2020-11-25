@@ -136,3 +136,5 @@ dmypy.json
 
 # Defined
 pretrain/
+result/
+dataset/
