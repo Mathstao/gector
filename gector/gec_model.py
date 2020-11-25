@@ -320,87 +320,93 @@ class GecBERTModel(object):
         probabilities_batch = [[] for i in range(len(final_batch))]
         idxs_batch = [[] for i in range(len(final_batch))]
         error_probs_batch = [[] for i in range(len(final_batch))]
+        error_probs_batch = [[] for i in range(len(final_batch))]
+        inter_pred_batch = [[] for i in range(len(final_batch))]
+
         if add_spell_check:
-            spell_corr_batch = []
-            spell_corr_idxs = []
-            spell_corr_probs = []
+            spell_check_batch = []
+            spell_check_idxs = []
+            spell_check_probs = []
+            spell_check_error_probs = []
+
             for tokens in final_batch:
-                spell_corr_tokens = []
+                spell_check_tokens = []
                 # The start placeholder will not be corrected by spell checker in all time.
                 iter_idxs = [0]
+                error_p = 0
                 for word in tokens:
                     if len(word) < 5:
                         corr_word = word
                     else:
                         corr_word = self.spell_checker.correct(word)
-                    if word.lower() != corr_word.lower():
-                        spell_corr_tokens.append(corr_word)
+                    if word != corr_word:
+                        spell_check_tokens.append(corr_word)
                         iter_idxs.append(SPELL_CHECK_INDEX)
+                        error_p = 1
                     else:
-                        spell_corr_tokens.append(word)
+                        spell_check_tokens.append(word)
                         iter_idxs.append(0)
-                spell_corr_batch.append(spell_corr_tokens)
-                spell_corr_idxs.append(iter_idxs)
-                spell_corr_probs.append([1]*len(iter_idxs))
-            # if final_batch!=spell_corr_batch:
-            #     print('**********************')
-            #     print(final_batch)
-            #     print(spell_corr_batch)
-            final_batch = spell_corr_batch
+
+                spell_check_batch.append(spell_check_tokens)
+                spell_check_idxs.append(iter_idxs)
+                spell_check_probs.append([1]*len(spell_check_tokens))
+                spell_check_error_probs.append(error_p)
+
+            final_batch = spell_check_batch
 
         for n_iter in range(iterations):
-
             orig_batch = [final_batch[i] for i in pred_ids]
-
             sequences = self.preprocess(orig_batch)
-
             if not sequences:
                 break
             probabilities, idxs, error_probs = self.predict(sequences)
-
             pred_batch = self.postprocess_batch(orig_batch, probabilities,
                                                 idxs, error_probs,
                                                 min_probability, min_error_probability)
-
             for pid, to_add in zip(pred_ids, probabilities):
                 probabilities_batch[pid].append(to_add)
             for pid, to_add in zip(pred_ids, idxs):
                 idxs_batch[pid].append(to_add)
             for pid, to_add in zip(pred_ids, error_probs):
                 error_probs_batch[pid].append(to_add)
+            for pid, to_add in zip(pred_ids, pred_batch[:]):
+                inter_pred_batch[pid].append(to_add)
 
             if self.log:
                 logging.info(f"Iteration {n_iter + 1}. Predicted {round(100*len(pred_ids)/batch_size, 1)}% of sentences.")
 
+
             final_batch, pred_ids, cnt = \
                 self.update_final_batch(final_batch, pred_ids, pred_batch,
                                         prev_preds_dict)
+
             total_updates += cnt
 
             if not pred_ids:
                 break
 
-#         ### Citao added ###
+        ### Citao added ###
 
-#         # print(idxs_batch)
-#         for sent_id in range(len(idxs_batch)):
-#             L = len(full_batch[sent_id])+1
-#             for iter_id, iter_idxs in enumerate(idxs_batch[sent_id]):
-#                 idxs_batch[sent_id][iter_id] = idxs_batch[sent_id][iter_id][:L]
-#                 edit_names = [self.vocab.get_token_from_index(i, namespace='labels') for i in iter_idxs]
-#                 delete_num = sum([1 if i.startswith('$DELETE') else 0 for i in edit_names])
-#                 append_num = sum([1 if i.startswith('$APPEND') else 0 for i in edit_names])
-#                 L = L + (append_num - delete_num)
-#         # print(idxs_batch)
+        # print(idxs_batch)
+        for sent_id in range(len(idxs_batch)):
+            L = len(full_batch[sent_id])+1
+            for iter_id, iter_idxs in enumerate(idxs_batch[sent_id]):
+                idxs_batch[sent_id][iter_id] = idxs_batch[sent_id][iter_id][:L]
+                edit_names = [self.vocab.get_token_from_index(i, namespace='labels') for i in iter_idxs]
+                delete_num = sum([1 if i.startswith('$DELETE') else 0 for i in edit_names])
+                append_num = sum([1 if i.startswith('$APPEND') else 0 for i in edit_names])
+                L = L + (append_num - delete_num)
+        # print(idxs_batch)
 
-#         ###################
+        ###################
 
         if add_spell_check:
-            idxs_batch = [[to_add]+exist for to_add, exist in zip(spell_corr_idxs, idxs_batch)]
-            probabilities_batch = [[to_add]+exist for to_add, exist in zip(spell_corr_probs, idxs_batch)]
+            idxs_batch = [[to_add]+exist for to_add, exist in zip(spell_check_idxs, idxs_batch)]
+            probabilities_batch = [[to_add]+exist for to_add, exist in zip(spell_check_probs, probabilities_batch)]
+            error_probs_batch = [[to_add]+exist for to_add, exist in zip(spell_check_error_probs, error_probs_batch)]
+            inter_pred_batch = [[to_add]+exist for to_add, exist in zip(spell_check_batch, inter_pred_batch)]
 
-        return final_batch, probabilities_batch, idxs_batch, error_probs_batch, total_updates
-        # return final_batch, total_updates
+        return final_batch, probabilities_batch, idxs_batch, inter_pred_batch, error_probs_batch, total_updates
 
 
     def overlay_edit(self, placeholder_list, label_idxs):
@@ -442,11 +448,13 @@ class GecBERTModel(object):
 
             elif label in ['@@UNKNOWN@@', '@@PADDING@@']:
                 logging.info('Specific label [{}]'.format(label))
+                new_placeholder_list.append(placeholder_list[token_ptr])
                 label_ptr += 1
                 token_ptr += 1
 
             else:
                 logging.info('Unknown label [{}]'.format(label))
+                new_placeholder_list.append(placeholder_list[token_ptr])
                 label_ptr += 1
                 token_ptr += 1
         
@@ -476,9 +484,11 @@ class GecBERTModel(object):
                 result.append('__PLACEHOLD__')
         return result[1:]
 
-    def generate_correct_detail(self, text, source_tokens, pred_tokens, iter_label_idxs):
+    def generate_correct_detail(self, text, source_tokens, pred_tokens, iter_label_idxs, iter_probs, config):
         placeholder_list = ['__raw__' for _ in range(1+len(source_tokens))] 
-        for label_idxs in iter_label_idxs:
+        for edit_probs, label_idxs in zip(iter_probs, iter_label_idxs):
+            # if edit_probability < min_probability, convert the edit type to be '0' ($KEEP)
+            label_idxs = [idx if p>config['min_probability'] else 0 for (idx, p) in zip(label_idxs, edit_probs)]
             placeholder_list = self.overlay_edit(placeholder_list, label_idxs)
 
         edits_based_pred = self.generate_edits_based_pred(pred_tokens, placeholder_list)
@@ -573,4 +583,8 @@ class GecBERTModel(object):
         
         # deduplication
         correct_details = [c for c in correct_details if c[0]!=c[1]]
+
+        # check case_sentitive param
+        if not config['case_sensitive']:
+            correct_details = [c for c in correct_details if c[0].lower()!=c[1].lower()]
         return correct_details
