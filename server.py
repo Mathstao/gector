@@ -23,15 +23,15 @@ model = GecBERTModel(
 
 class GECToR(tornado.web.RequestHandler):
     def post(self):
-        # resp = {'status': True, 'data': '', 'corrections': [], 'orig_tokens': [], 'cor_tokens': []}
         resp ={}
         try:
             data = json.loads(self.request.body)
             text = data['text']
-            config = {}
-            for field in ['add_spell_check', 'iterations', 'min_probability', 'min_error_probability']:
+            config = {'case_sensitive': True}
+            for field in ['add_spell_check', 'iterations', 'min_probability', 'min_error_probability', 'case_sensitive']:
                 if field in data:
                     config[field] = data[field]
+            add_spell_check = config.get('add_spell_check', False)
 
             # tokenize the input text
             batch = []
@@ -46,13 +46,38 @@ class GECToR(tornado.web.RequestHandler):
                 batch.append(tokens)
 
             # batch call
-            preds, probabilities_batch, idxs_batch, error_probs_batch, total_updates = model.handle_batch(full_batch=batch, config=config, debug=False)
+            preds, probabilities_batch, idxs_batch, inter_pred_batch, error_probs_batch, total_updates = model.handle_batch(full_batch=batch, config=config, debug=False)
 
-            print(preds)
-            print(probabilities_batch)
-            print(idxs_batch)
-            print(error_probs_batch)
-            print(total_updates)
+
+            debug_text_output_list = []
+            for ori_token, curr_error_probs, curr_idxs_batch, curr_probs, curr_iter_pred in zip(batch, error_probs_batch, idxs_batch, probabilities_batch, inter_pred_batch):
+                inter_corrected_tokens = [ori_token] + curr_iter_pred
+                inter_corrected_tokens = [['__START__']+i for i in inter_corrected_tokens]
+                for i, (iter_error_prob, iter_idxs, iter_probs, iter_pred) in enumerate(zip(curr_error_probs, curr_idxs_batch, curr_probs, curr_iter_pred)):
+                    iter_labels = [model.vocab.get_token_from_index(i, namespace='labels') for i in iter_idxs]
+                    if add_spell_check:
+                        if i == 0:
+                            debug_text_output_list.append('<Spell Check>')
+                            iter_labels = ['$KEEP' if x=='$KEEP' else '$SPELL_CHECK' for x in iter_labels]
+                        else:
+                            debug_text_output_list.append('<Iteration {}>'.format(i))
+                    else:
+                        debug_text_output_list.append('<Iteration {}>'.format(i+1))
+                    debug_text_output_list.append('Sentence Error Probability: {}\n'.format(iter_error_prob))
+                    debug_text_output_list.append('#### Before ####\n{}\n'.format(' '.join(inter_corrected_tokens[i][1:])))
+                    debug_text_output_list.append('#### After #####\n{}\n'.format(' '.join(inter_corrected_tokens[i+1][1:])))
+                    if add_spell_check and i==0:
+                        debug_text_output_list.append('[Spell Check]')
+                    else:
+                        debug_text_output_list.append('[Model Correction]')
+                    debug_text_output_list.append('-'*80)
+                    for _token, _edit, _proba in zip(inter_corrected_tokens[i], iter_labels, iter_probs):
+                        debug_text_output_list.append(_token.ljust(30)+_edit.ljust(30)+str(_proba))
+                    debug_text_output_list.append('-'*80)
+                    debug_text_output_list.append('\n')
+                debug_text_output_list.append('='*80+'\n')
+            debug_text_output = '\n'.join(debug_text_output_list)
+            del debug_text_output_list
 
             # # singel call
             # preds = []
@@ -67,9 +92,9 @@ class GECToR(tornado.web.RequestHandler):
             corrections = []
             source_sents_with_idx = add_sents_idx(text, sentences)
             
-            for sent, source_tokens, pred_tokens, iter_label_idxs in zip(sentences, batch, preds, idxs_batch):
+            for sent, source_tokens, pred_tokens, iter_label_idxs, iter_probs in zip(sentences, batch, preds, idxs_batch, probabilities_batch):
                 try:
-                    detail = model.generate_correct_detail(sent, source_tokens, pred_tokens, iter_label_idxs)
+                    detail = model.generate_correct_detail(sent, source_tokens, pred_tokens, iter_label_idxs, iter_probs, config)
                     correct_details.append(detail)
                 except Exception as e:
                     logging.error(e, exc_info=True)
@@ -78,7 +103,6 @@ class GECToR(tornado.web.RequestHandler):
                     print(source_tokens)
                     print(pred_tokens)
                     print(iter_label_idxs)
-            
 
             global_correct_details = deepcopy(correct_details)
             for sent_id, detail in enumerate(global_correct_details):
@@ -107,18 +131,20 @@ class GECToR(tornado.web.RequestHandler):
             resp['input'] = text
             resp['output'] = correct_text
             resp['corrections'] = corrections
-            # resp['data'] = correct_text
-            # resp['orig_tokens'] = batch
-            # resp['cor_tokens'] = preds
+            if config.get('debug_info', True):
+                resp['debug_info'] = debug_text_output
+            else:
+                resp['debug_info'] = ''
         except:
             logging.error('Processing failed.\n******\n\n{}\n\n******'.format(text), exc_info=True)
             resp['status'] = False
             resp['input'] = text
             resp['output'] = text
             resp['corrections'] = []
+            resp['debug_info'] = ''
         finally:
             self.write(json.dumps(resp))
-            logging.info("\nInput[{}]\nOutput[{}]\nCorrections[{}]".format(text, resp['data'], resp['corrections']))
+            logging.info("\nInput[{}]\nOutput[{}]\nCorrections[{}]".format(resp['input'], resp['output'], resp['corrections']))
 
 def make_app():
     return tornado.web.Application([
