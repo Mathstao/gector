@@ -320,7 +320,6 @@ class GecBERTModel(object):
         probabilities_batch = [[] for i in range(len(final_batch))]
         idxs_batch = [[] for i in range(len(final_batch))]
         error_probs_batch = [[] for i in range(len(final_batch))]
-        error_probs_batch = [[] for i in range(len(final_batch))]
         inter_pred_batch = [[] for i in range(len(final_batch))]
 
         if add_spell_check:
@@ -365,10 +364,10 @@ class GecBERTModel(object):
                                                 min_probability, min_error_probability)
             for pid, to_add in zip(pred_ids, probabilities):
                 probabilities_batch[pid].append(to_add)
-            for pid, to_add in zip(pred_ids, idxs):
-                idxs_batch[pid].append(to_add)
             for pid, to_add in zip(pred_ids, error_probs):
                 error_probs_batch[pid].append(to_add)
+            for pid, to_add in zip(pred_ids, idxs):
+                idxs_batch[pid].append(to_add)
             for pid, to_add in zip(pred_ids, pred_batch[:]):
                 inter_pred_batch[pid].append(to_add)
 
@@ -387,7 +386,6 @@ class GecBERTModel(object):
 
         ### Citao added ###
 
-        # print(idxs_batch)
         for sent_id in range(len(idxs_batch)):
             L = len(full_batch[sent_id])+1
             for iter_id, iter_idxs in enumerate(idxs_batch[sent_id]):
@@ -396,7 +394,6 @@ class GecBERTModel(object):
                 delete_num = sum([1 if i.startswith('$DELETE') else 0 for i in edit_names])
                 append_num = sum([1 if i.startswith('$APPEND') else 0 for i in edit_names])
                 L = L + (append_num - delete_num)
-        # print(idxs_batch)
 
         ###################
 
@@ -484,11 +481,15 @@ class GecBERTModel(object):
                 result.append('__PLACEHOLD__')
         return result[1:]
 
-    def generate_correct_detail(self, text, source_tokens, pred_tokens, iter_label_idxs, iter_probs, config):
+    def generate_correct_detail(self, text, source_tokens, pred_tokens, iter_label_idxs, iter_probs, iter_error_probs, config):
         placeholder_list = ['__raw__' for _ in range(1+len(source_tokens))] 
-        for edit_probs, label_idxs in zip(iter_probs, iter_label_idxs):
-            # if edit_probability < min_probability, convert the edit type to be '0' ($KEEP)
-            label_idxs = [idx if p>config['min_probability'] else 0 for (idx, p) in zip(label_idxs, edit_probs)]
+        for edit_probs, error_prob, label_idxs in zip(iter_probs, iter_error_probs, iter_label_idxs):
+            # if error_prob < min_error_probability, convert the all the edit type to be '0' ($KEEP)
+            if error_prob < config['min_error_probability']:
+                label_idxs = [0] * len(label_idxs)
+            else:
+                # if edit_probability < min_probability, convert the edit type to be '0' ($KEEP)
+                label_idxs = [idx if p>config['min_probability'] else 0 for (idx, p) in zip(label_idxs, edit_probs)]
             placeholder_list = self.overlay_edit(placeholder_list, label_idxs)
 
         edits_based_pred = self.generate_edits_based_pred(pred_tokens, placeholder_list)

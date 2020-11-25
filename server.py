@@ -98,9 +98,9 @@ class GECToR(tornado.web.RequestHandler):
             corrections = []
             source_sents_with_idx = add_sents_idx(text, sentences)
             
-            for sent, source_tokens, pred_tokens, iter_label_idxs, iter_probs in zip(sentences, batch, preds, idxs_batch, probabilities_batch):
+            for sent, source_tokens, pred_tokens, iter_label_idxs, iter_probs, iter_error_probs in zip(sentences, batch, preds, idxs_batch, probabilities_batch, error_probs_batch):
                 try:
-                    detail = model.generate_correct_detail(sent, source_tokens, pred_tokens, iter_label_idxs, iter_probs, config)
+                    detail = model.generate_correct_detail(sent, source_tokens, pred_tokens, iter_label_idxs, iter_probs, iter_error_probs, config)
                     correct_details.append(detail)
                 except Exception as e:
                     logging.error(e, exc_info=True)
