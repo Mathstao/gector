@@ -5,12 +5,14 @@ import requests
 import tornado.web
 from time import time
 from gector.gec_model import GecBERTModel
-from utils.helpers import add_sents_idx
+from utils.helpers import add_sents_idx, add_tokens_idx
 from copy import deepcopy
+from errant import errant
 
 logging.basicConfig(format='%(levelname)s: [%(asctime)s][%(filename)s:%(lineno)d] %(message)s',level=logging.INFO)
 
 nlp = spacy.load("en")
+annotator = errant.load(lang='en', nlp=nlp)
 
 model = GecBERTModel(
     vocab_path = "./data/output_vocabulary",
@@ -28,14 +30,14 @@ DEFAULT_CONFIG = {
     'case_sensitive': True,
 }
 
-LT_URL = 'http://localhost:8081/v2/check'
+LANGUAGE_TOOL_URL = 'http://localhost:8081/v2/check'
 
 def language_tool_correct(text):
     data = {
         'language': 'en-US',
         'text': text,
     }
-    resp = requests.post(LT_URL, data)
+    resp = requests.post(LANGUAGE_TOOL_URL, data)
     result = resp.json()
 
     corrections = []
@@ -58,6 +60,44 @@ def language_tool_correct(text):
     correct_text = ''.join(char_list)
     return correct_text, corrections
 
+
+def extract_corrections_from_parallel_text(orig_text, cor_text):
+    orig = annotator.parse(orig_text, True)
+    cor = annotator.parse(cor_text, True)
+    edits = annotator.annotate(orig, cor)
+
+    orig_tokens_with_idx = add_tokens_idx(orig_text, orig)
+    orig_tokens_with_idx
+
+    corrections = []
+    for e in edits:
+        o_char_start = orig_tokens_with_idx[e.o_start][1]
+        o_char_end = orig_tokens_with_idx[e.o_end-1][2]
+        orig_substr = e.o_str
+        pred_substr = e.c_str
+        corrections.append([orig_substr, pred_substr, (o_char_start, o_char_end)])
+    return corrections
+
+
+# def extract_edits_from_parallel_token(orig_token, cor_token):
+#     edits = annotator.annotate(orig_token, cor_token)
+#     return edits
+
+
+def extract_corrections(orig_text, cor_text):
+
+
+    orig_tokens_with_idx = add_tokens_idx(orig_text, orig)
+    orig_tokens_with_idx
+
+    corrections = []
+    for e in edits:
+        o_char_start = orig_tokens_with_idx[e.o_start][1]
+        o_char_end = orig_tokens_with_idx[e.o_end-1][2]
+        orig_substr = e.o_str
+        pred_substr = e.c_str
+        corrections.append([orig_substr, pred_substr, (o_char_start, o_char_end)])
+    print(corrections)
 
 class GECToR(tornado.web.RequestHandler):
     def post(self):
@@ -121,7 +161,8 @@ class GECToR(tornado.web.RequestHandler):
             
             for sent, source_tokens, pred_tokens, iter_label_idxs, iter_probs, iter_error_probs in zip(sentences, batch, preds, idxs_batch, probabilities_batch, error_probs_batch):
                 try:
-                    detail = model.generate_correct_detail(sent, source_tokens, pred_tokens, iter_label_idxs, iter_probs, iter_error_probs, config)
+                    # detail = model.generate_correct_detail(sent, source_tokens, pred_tokens, iter_label_idxs, iter_probs, iter_error_probs, config)
+                    detail = extract_corrections_from_parallel_text(' '.join(source_tokens), ' '.join(pred_tokens))
                     correct_details.append(detail)
                 except Exception as e:
                     logging.error(e, exc_info=True)
