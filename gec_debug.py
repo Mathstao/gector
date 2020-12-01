@@ -18,7 +18,6 @@ if __name__ == '__main__':
         'iterations': 3,
         'min_probability': 0.5,
         'min_error_probability': 0.8,
-        'add_spell_check': True,
         'debug': True,
     }
     result = call_gec(data)

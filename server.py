@@ -25,7 +25,6 @@ DEFAULT_CONFIG = {
     'iterations': 3,
     'min_probability': 0.5,
     'min_error_probability': 0.7,
-    'add_spell_check': False,
     'case_sensitive': True,
 }
 
@@ -67,7 +66,7 @@ class GECToR(tornado.web.RequestHandler):
             data = json.loads(self.request.body)
             text = data['text']
             config = DEFAULT_CONFIG.copy()
-            for field in ['add_spell_check', 'iterations', 'min_probability', 'min_error_probability', 'case_sensitive']:
+            for field in ['iterations', 'min_probability', 'min_error_probability', 'case_sensitive']:
                 if field in data:
                     config[field] = data[field]
 
@@ -93,22 +92,11 @@ class GECToR(tornado.web.RequestHandler):
                 inter_corrected_tokens = [['__START__']+i for i in inter_corrected_tokens]
                 for i, (iter_error_prob, iter_idxs, iter_probs, iter_pred) in enumerate(zip(curr_error_probs, curr_idxs_batch, curr_probs, curr_iter_pred)):
                     iter_labels = [model.vocab.get_token_from_index(i, namespace='labels') for i in iter_idxs]
-                    if 0:
-#                     if config['add_spell_check']:
-#                         if i == 0:
-#                             debug_text_output_list.append('<Spell Check>')
-#                             iter_labels = ['$KEEP' if x=='$KEEP' else '$SPELL_CHECK' for x in iter_labels]
-#                         else:
-#                             debug_text_output_list.append('<Iteration {}>'.format(i))
-                    else:
-                        debug_text_output_list.append('<Iteration {}>'.format(i+1))
+                    debug_text_output_list.append('<Iteration {}>'.format(i+1))
                     debug_text_output_list.append('Sentence Error Probability: {}\n'.format(iter_error_prob))
                     debug_text_output_list.append('#### Before ####\n{}\n'.format(' '.join(inter_corrected_tokens[i][1:])))
                     debug_text_output_list.append('#### After #####\n{}\n'.format(' '.join(inter_corrected_tokens[i+1][1:])))
-                    if config['add_spell_check'] and i==0:
-                        debug_text_output_list.append('[Spell Check]')
-                    else:
-                        debug_text_output_list.append('[Model Correction]')
+                    debug_text_output_list.append('[Model Correction]')
                     debug_text_output_list.append('-'*80)
                     for _token, _edit, _proba in zip(inter_corrected_tokens[i], iter_labels, iter_probs):
                         debug_text_output_list.append(_token.ljust(30)+_edit.ljust(30)+str(_proba))
