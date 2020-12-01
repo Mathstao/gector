@@ -216,6 +216,8 @@ def add_tokens_idx(text, source_tokens):
     tmp_text = text[:]
     accumulated_lenght = 0
     for token in source_tokens:
+        if not isinstance(token, str):
+            token = str(token)
         word_start_idx = tmp_text.find(token) + accumulated_lenght
         word_end_idx = word_start_idx + len(token)
         tokens_with_idx.append([token, word_start_idx, word_end_idx])

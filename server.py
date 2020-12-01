@@ -7,7 +7,7 @@ from time import time
 from gector.gec_model import GecBERTModel
 from utils.helpers import add_sents_idx, add_tokens_idx
 from copy import deepcopy
-from errant import errant
+import errant
 
 logging.basicConfig(format='%(levelname)s: [%(asctime)s][%(filename)s:%(lineno)d] %(message)s',level=logging.INFO)
 
