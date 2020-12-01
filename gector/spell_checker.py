@@ -17,6 +17,20 @@ class SymSpellChecker(object):
             return cor_word
         return word
 
+    def correct_text(self, text):
+        cor_list = []
+        for word in text.split(' '):
+            suggestions = self.checker.lookup(word, Verbosity.CLOSEST, max_edit_distance=2)
+            cor_flag = False
+            for suggestion in suggestions:
+                cor_word = suggestion.term
+                cor_list.append(cor_word)
+                cor_flag = True
+                break
+            if not cor_flag:
+                cor_list.append(word)
+        return ' '.join(cor_list)
+
 
 class HunspellChecker(object):
 

@@ -1,6 +1,7 @@
 import json
 import spacy
 import logging
+import requests
 import tornado.web
 from time import time
 from gector.gec_model import GecBERTModel
@@ -27,6 +28,37 @@ DEFAULT_CONFIG = {
     'add_spell_check': False,
     'case_sensitive': True,
 }
+
+LT_URL = 'http://localhost:8081/v2/check'
+
+def language_tool_correct(text):
+    data = {
+        'language': 'en-US',
+        'text': text,
+    }
+    resp = requests.post(LT_URL, data)
+    result = resp.json()
+
+    corrections = []
+    for r in result["matches"]:
+        idx_s = r["offset"]
+        idx_e = idx_s + r["length"]
+        corrections.append([text[idx_s:idx_e], r["replacements"][0]['value'], [idx_s, idx_e]])
+
+    # generate correct text from the correction details
+    offset = 0
+    char_list = list(text)
+    for c in corrections:
+        idx_s = c[2][0] + offset
+        idx_e = c[2][1] + offset
+        source = list(c[0])
+        target = list(c[1])
+        if  char_list[idx_s:idx_e] == source:
+            char_list[idx_s:idx_e] = target
+            offset += len(target) - len(source)
+    correct_text = ''.join(char_list)
+    return correct_text, corrections
+
 
 class GECToR(tornado.web.RequestHandler):
     def post(self):
@@ -61,12 +93,13 @@ class GECToR(tornado.web.RequestHandler):
                 inter_corrected_tokens = [['__START__']+i for i in inter_corrected_tokens]
                 for i, (iter_error_prob, iter_idxs, iter_probs, iter_pred) in enumerate(zip(curr_error_probs, curr_idxs_batch, curr_probs, curr_iter_pred)):
                     iter_labels = [model.vocab.get_token_from_index(i, namespace='labels') for i in iter_idxs]
-                    if config['add_spell_check']:
-                        if i == 0:
-                            debug_text_output_list.append('<Spell Check>')
-                            iter_labels = ['$KEEP' if x=='$KEEP' else '$SPELL_CHECK' for x in iter_labels]
-                        else:
-                            debug_text_output_list.append('<Iteration {}>'.format(i))
+                    if 0:
+#                     if config['add_spell_check']:
+#                         if i == 0:
+#                             debug_text_output_list.append('<Spell Check>')
+#                             iter_labels = ['$KEEP' if x=='$KEEP' else '$SPELL_CHECK' for x in iter_labels]
+#                         else:
+#                             debug_text_output_list.append('<Iteration {}>'.format(i))
                     else:
                         debug_text_output_list.append('<Iteration {}>'.format(i+1))
                     debug_text_output_list.append('Sentence Error Probability: {}\n'.format(iter_error_prob))
@@ -133,10 +166,12 @@ class GECToR(tornado.web.RequestHandler):
                     offset += len(target) - len(source)
             correct_text = ''.join(char_list)
 
+            # Add LanguageTool result
             resp['status'] = True
             resp['input'] = text
-            resp['output'] = correct_text
+            resp['output'] = \
             resp['corrections'] = corrections
+            resp['lt_correct_text'], _ = language_tool_correct(correct_text)
             if config.get('debug_info', True):
                 resp['debug_info'] = debug_text_output
             else:
@@ -148,6 +183,7 @@ class GECToR(tornado.web.RequestHandler):
             resp['output'] = text
             resp['corrections'] = []
             resp['debug_info'] = ''
+            resp['lt_correct_text'] = text
         finally:
             self.write(json.dumps(resp))
             logging.info("\nInput  [{}]\nOutput [{}]\nCorrections [{}]".format(resp['input'], resp['output'], resp['corrections']))

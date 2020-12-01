@@ -322,36 +322,36 @@ class GecBERTModel(object):
         error_probs_batch = [[] for i in range(len(final_batch))]
         inter_pred_batch = [[] for i in range(len(final_batch))]
 
-        if add_spell_check:
-            spell_check_batch = []
-            spell_check_idxs = []
-            spell_check_probs = []
-            spell_check_error_probs = []
+#         if add_spell_check:
+#             spell_check_batch = []
+#             spell_check_idxs = []
+#             spell_check_probs = []
+#             spell_check_error_probs = []
 
-            for tokens in final_batch:
-                spell_check_tokens = []
-                # The start placeholder will not be corrected by spell checker in all time.
-                iter_idxs = [0]
-                error_p = 0
-                for word in tokens:
-                    if len(word) < 5:
-                        corr_word = word
-                    else:
-                        corr_word = self.spell_checker.correct(word)
-                    if word != corr_word:
-                        spell_check_tokens.append(corr_word)
-                        iter_idxs.append(SPELL_CHECK_INDEX)
-                        error_p = 1
-                    else:
-                        spell_check_tokens.append(word)
-                        iter_idxs.append(0)
+#             for tokens in final_batch:
+#                 spell_check_tokens = []
+#                 # The start placeholder will not be corrected by spell checker in all time.
+#                 iter_idxs = [0]
+#                 error_p = 0
+#                 for word in tokens:
+#                     if len(word) < 5:
+#                         corr_word = word
+#                     else:
+#                         corr_word = self.spell_checker.correct(word)
+#                     if word != corr_word:
+#                         spell_check_tokens.append(corr_word)
+#                         iter_idxs.append(SPELL_CHECK_INDEX)
+#                         error_p = 1
+#                     else:
+#                         spell_check_tokens.append(word)
+#                         iter_idxs.append(0)
 
-                spell_check_batch.append(spell_check_tokens)
-                spell_check_idxs.append(iter_idxs)
-                spell_check_probs.append([1]*len(spell_check_tokens))
-                spell_check_error_probs.append(error_p)
+#                 spell_check_batch.append(spell_check_tokens)
+#                 spell_check_idxs.append(iter_idxs)
+#                 spell_check_probs.append([1]*len(spell_check_tokens))
+#                 spell_check_error_probs.append(error_p)
 
-            final_batch = spell_check_batch
+#             final_batch = spell_check_batch
 
         for n_iter in range(iterations):
             orig_batch = [final_batch[i] for i in pred_ids]
@@ -397,11 +397,11 @@ class GecBERTModel(object):
 
         ###################
 
-        if add_spell_check:
-            idxs_batch = [[to_add]+exist for to_add, exist in zip(spell_check_idxs, idxs_batch)]
-            probabilities_batch = [[to_add]+exist for to_add, exist in zip(spell_check_probs, probabilities_batch)]
-            error_probs_batch = [[to_add]+exist for to_add, exist in zip(spell_check_error_probs, error_probs_batch)]
-            inter_pred_batch = [[to_add]+exist for to_add, exist in zip(spell_check_batch, inter_pred_batch)]
+#         if add_spell_check:
+#             idxs_batch = [[to_add]+exist for to_add, exist in zip(spell_check_idxs, idxs_batch)]
+#             probabilities_batch = [[to_add]+exist for to_add, exist in zip(spell_check_probs, probabilities_batch)]
+#             error_probs_batch = [[to_add]+exist for to_add, exist in zip(spell_check_error_probs, error_probs_batch)]
+#             inter_pred_batch = [[to_add]+exist for to_add, exist in zip(spell_check_batch, inter_pred_batch)]
 
         return final_batch, probabilities_batch, idxs_batch, inter_pred_batch, error_probs_batch, total_updates
 
