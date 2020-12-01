@@ -75,7 +75,7 @@ def extract_corrections_from_parallel_text(orig_text, cor_text):
         o_char_end = orig_tokens_with_idx[e.o_end-1][2]
         orig_substr = e.o_str
         pred_substr = e.c_str
-        corrections.append([orig_substr, pred_substr, (o_char_start, o_char_end)])
+        corrections.append([orig_substr, pred_substr, [o_char_start, o_char_end]])
     return corrections
 
 
