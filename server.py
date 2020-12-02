@@ -71,6 +71,10 @@ def extract_corrections_from_parallel_text(orig_text, cor_text):
 
 
 def extract_corrections_from_parallel_tokens(orig_text, orig, cor):
+    if isinstance(orig, list):
+        orig = annotator.parse(' '.join(orig), True)
+    if isinstance(cor, list):
+        cor = annotator.parse(' '.join(cor), True)
     edits = annotator.annotate(orig, cor, need_tag=False)
     orig_tokens_with_idx = add_tokens_idx(orig_text, orig)
     orig_tokens_with_idx
@@ -157,7 +161,6 @@ class GECToR(tornado.web.RequestHandler):
             local_gec_corrections_list = []
             source_sents_with_idx = add_sents_idx(text, sentences)
             for sent, source_tokens, pred_tokens, iter_label_idxs, iter_probs, iter_error_probs in zip(sentences, batch, pred_tokens_batch, edit_idxs_batch, edit_probas_batch, error_probs_batch):
-                # detail = model.generate_correct_detail(sent, source_tokens, pred_tokens, iter_label_idxs, iter_probs, iter_error_probs, config)
                 gec_corrections = extract_corrections_from_parallel_tokens(sent, source_tokens, pred_tokens)
                 gec_cor_sent = apply_corrections(sent, gec_corrections)
                 local_gec_corrections_list.append(gec_corrections)
