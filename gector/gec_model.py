@@ -5,6 +5,7 @@ import sys
 from time import time
 import numpy as np
 import torch
+from typing_extensions import final
 from allennlp.data.dataset import Batch
 from allennlp.data.fields import TextField
 from allennlp.data.instance import Instance
@@ -296,7 +297,7 @@ class GecBERTModel(object):
             all_results.append(get_target_sent_by_edits(tokens, edits))
         return all_results
 
-    def handle_batch(self, full_batch, config, debug): 
+    def handle_batch(self, full_batch, config): 
         """
         Handle batch of requests.
         """
@@ -310,7 +311,8 @@ class GecBERTModel(object):
         prev_preds_dict = {i: [final_batch[i]] for i in range(len(final_batch))}
         short_ids = [i for i in range(len(full_batch)) if len(full_batch[i]) < self.min_len]
         pred_ids = [i for i in range(len(full_batch)) if i not in short_ids]
-        total_updates = 0
+        correct_cnt = 0
+        last_error_prob_batch = []
 
         probabilities_batch = [[] for i in range(len(final_batch))]
         idxs_batch = [[] for i in range(len(final_batch))]
@@ -344,10 +346,15 @@ class GecBERTModel(object):
                 self.update_final_batch(final_batch, pred_ids, pred_batch,
                                         prev_preds_dict)
 
-            total_updates += cnt
+            correct_cnt += cnt
 
             if not pred_ids:
                 break
+
+        # Add last_error_prob_batch for post-processing
+        sequences = self.preprocess(final_batch)
+        _, _, last_error_prob_batch = self.predict(sequences)
+        print(last_error_prob_batch)
 
         ### Citao added ###
 
@@ -362,7 +369,17 @@ class GecBERTModel(object):
 
         ###################
 
-        return final_batch, probabilities_batch, idxs_batch, inter_pred_batch, error_probs_batch, total_updates
+        result = {
+            'pred_tokens_batch': final_batch,
+            'edit_probas_batch': probabilities_batch,
+            'edit_idxs_batch': idxs_batch,
+            'inter_pred_tokens_batch': inter_pred_batch,
+            'error_probs_batch': error_probs_batch,
+            'last_error_prob_batch': last_error_prob_batch,
+            'correct_cnt': correct_cnt,
+
+        }
+        return result
 
 
     def overlay_edit(self, placeholder_list, label_idxs):

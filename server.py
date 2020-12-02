@@ -119,14 +119,20 @@ class GECToR(tornado.web.RequestHandler):
                 batch.append(tokens)
 
             # batch call
-            preds, probabilities_batch, idxs_batch, inter_pred_batch, error_probs_batch, total_updates = model.handle_batch(full_batch=batch, config=config, debug=False)
+            result = model.handle_batch(full_batch=batch, config=config)
+            pred_tokens_batch = result['pred_tokens_batch']
+            edit_probas_batch = result['edit_probas_batch']
+            edit_idxs_batch = result['edit_idxs_batch']
+            inter_pred_tokens_batch = result['inter_pred_tokens_batch']
+            error_probs_batch = result['error_probs_batch']
+            last_error_prob_batch = result['last_error_prob_batch']
 
-
+            # origanize the debuging information.
             debug_text_output_list = []
-            for ori_token, curr_error_probs, curr_idxs_batch, curr_probs, curr_iter_pred in zip(batch, error_probs_batch, idxs_batch, probabilities_batch, inter_pred_batch):
+            for ori_token, curr_error_probs, curr_edit_idxs, curr_edit_probs, curr_iter_pred in zip(batch, error_probs_batch, edit_idxs_batch, edit_probas_batch, inter_pred_tokens_batch):
                 inter_corrected_tokens = [ori_token] + curr_iter_pred
                 inter_corrected_tokens = [['__START__']+i for i in inter_corrected_tokens]
-                for i, (iter_error_prob, iter_idxs, iter_probs, iter_pred) in enumerate(zip(curr_error_probs, curr_idxs_batch, curr_probs, curr_iter_pred)):
+                for i, (iter_error_prob, iter_idxs, iter_probs, iter_pred) in enumerate(zip(curr_error_probs, curr_edit_idxs, curr_edit_probs, curr_iter_pred)):
                     iter_labels = [model.vocab.get_token_from_index(i, namespace='labels') for i in iter_idxs]
                     debug_text_output_list.append('<Iteration {}>'.format(i+1))
                     debug_text_output_list.append('Sentence Error Probability: {}\n'.format(iter_error_prob))
@@ -142,20 +148,11 @@ class GECToR(tornado.web.RequestHandler):
             debug_text_output = '\n'.join(debug_text_output_list)
             del debug_text_output_list
 
-            # # singel call
-            # preds = []
-            # idxs_batch = []
-            # for single in batch:
-            #     single_preds, _, single_idxs_batch, _, cnt = model.handle_batch([single])
-            #     preds.append(single_preds[0])
-            #     idxs_batch.append(single_idxs_batch[0])
-
             # fetch correction detail
             correct_details = []
             corrections = []
             source_sents_with_idx = add_sents_idx(text, sentences)
-            
-            for sent, source_tokens, pred_tokens, iter_label_idxs, iter_probs, iter_error_probs in zip(sentences, batch, preds, idxs_batch, probabilities_batch, error_probs_batch):
+            for sent, source_tokens, pred_tokens, iter_label_idxs, iter_probs, iter_error_probs in zip(sentences, batch, pred_tokens_batch, edit_idxs_batch, edit_probas_batch, error_probs_batch):
                 try:
                     # detail = model.generate_correct_detail(sent, source_tokens, pred_tokens, iter_label_idxs, iter_probs, iter_error_probs, config)
                     detail = extract_corrections_from_parallel_text(' '.join(source_tokens), ' '.join(pred_tokens))
