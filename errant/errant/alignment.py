@@ -39,11 +39,25 @@ class Alignment:
             cost_matrix[0][j] = cost_matrix[0][j-1] + 1
             op_matrix[0][j] = "I"
 
+        orig_orth_list = []
+        for i in range(len(self.orig)):
+            if hasattr(self.orig[i], 'text'):
+                orig_orth_list.append(self.orig[i].text)
+            else:
+                orig_orth_list.append(str(self.orig[i]))
+
+        cor_orth_list = []
+        for i in range(len(self.cor)):
+            if hasattr(self.cor[i], 'text'):
+                cor_orth_list.append(self.cor[i].text)
+            else:
+                cor_orth_list.append(str(self.cor[i]))
+
         # Loop through the cost_matrix
         for i in range(o_len):
             for j in range(c_len):
                 # Matches
-                if self.orig[i].orth == self.cor[j].orth:
+                if orig_orth_list[i] == cor_orth_list[j]:
                     cost_matrix[i+1][j+1] = cost_matrix[i][j]
                     op_matrix[i+1][j+1] = "M"
                 # Non-matches
