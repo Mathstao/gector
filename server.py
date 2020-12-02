@@ -62,7 +62,7 @@ def extract_corrections_from_parallel_tokens(orig_text, orig, cor):
         orig = annotator.parse(' '.join(orig), True)
     if isinstance(cor, list):
         cor = annotator.parse(' '.join(cor), True)
-    edits = annotator.annotate(orig, cor, need_tag=False)
+    edits = annotator.annotate(orig, cor, merging="rules", need_tag=False)
     orig_tokens_with_idx = add_tokens_idx(orig_text, orig)
     orig_tokens_with_idx
     corrections = []
@@ -89,6 +89,20 @@ def apply_corrections(text, corrections):
             offset += len(target) - len(source)
     correct_text = ''.join(char_list)
     return correct_text
+
+
+def filter_white_corrections(corrections, whitelist):
+    filtered_corrections = []
+    for c in corrections:
+        skip_flag = False
+        for word in whitelist:
+            word = word.lower()
+            if word in c[0].lower():
+                skip_flag = True
+                break
+        if not skip_flag:
+            filtered_corrections.append(c)
+    return filtered_corrections
 
 
 class GECToR(tornado.web.RequestHandler):
@@ -167,46 +181,32 @@ class GECToR(tornado.web.RequestHandler):
             # Add LanguageTool result
             resp['status'] = True
             resp['input'] = text
-            resp['output'] = gec_correct_text
-            resp['corrections'] = global_gec_corrections
-
+            resp['gec_correct_text'] = gec_correct_text
+            resp['gec_corrections'] = global_gec_corrections
             resp['lt_correct_text'], _ = language_tool_correct(gec_correct_text)
             resp['lt_corrections'] = extract_corrections_from_parallel_text(text, resp['lt_correct_text'])
             if config.get('debug_info', True):
                 resp['debug_info'] = debug_text_output
             else:
                 resp['debug_info'] = ''
-            white_list = ['Citao', 'OnMail']
-            filtered_corrections = []
-            for c in resp['lt_corrections']:
-                skip_flag = False
-                for word in white_list:
-                    word = word.lower()
-                    if word in c[0].lower():
-                        skip_flag = True
-                        break
-                if not skip_flag:
-                    filtered_corrections.append(c)
-            resp['filtered_corrections'] = filtered_corrections
-            resp['final_output'] = apply_corrections(text, resp['filtered_corrections'])
-            
-                        
-                        
+            filtered_corrections = filter_white_corrections(resp['lt_corrections'], ['Citao', 'Guibin', 'OnMail'])
+            resp['final_corrections'] = filtered_corrections
+            resp['final_output'] = apply_corrections(text, resp['final_corrections'])
             
         except:
             logging.error('Processing failed.\n******\n\n{}\n\n******'.format(text), exc_info=True)
             resp['status'] = False
             resp['input'] = text
-            resp['output'] = text
-            resp['corrections'] = []
-            resp['debug_info'] = ''
+            resp['gec_correct_text'] = text
+            resp['gec_corrections'] = []
             resp['lt_correct_text'] = text
             resp['lt_corrections'] = []
-            resp['filtered_corrections'] = []
+            resp['debug_info'] = ''
+            resp['final_corrections'] = []
             resp['final_output'] = text
         finally:
             self.write(json.dumps(resp))
-            logging.info("\nInput  [{}]\nOutput [{}]\nCorrections [{}]".format(resp['input'], resp['output'], resp['corrections']))
+            logging.info("\nInput  [{}]\nOutput [{}]\nCorrections [{}]".format(resp['input'], resp['final_output'], resp['final_corrections']))
 
 def make_app():
     return tornado.web.Application([
