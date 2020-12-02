@@ -151,7 +151,7 @@ class GECToR(tornado.web.RequestHandler):
                     debug_text_output_list.append('\n')
                 debug_text_output_list.append('='*80+'\n')
             debug_text_output = '\n'.join(debug_text_output_list)
-            del debug_text_output_list
+            del debug_text_output_list
 
             # fetch correction detail
             local_gec_corrections_list = []
