@@ -41,25 +41,12 @@ def language_tool_correct(text):
     }
     resp = requests.post(LANGUAGE_TOOL_URL, data)
     result = resp.json()
-
     corrections = []
     for r in result["matches"]:
         idx_s = r["offset"]
         idx_e = idx_s + r["length"]
         corrections.append([text[idx_s:idx_e], r["replacements"][0]['value'], [idx_s, idx_e]])
-
-    # generate correct text from the correction details
-    offset = 0
-    char_list = list(text)
-    for c in corrections:
-        idx_s = c[2][0] + offset
-        idx_e = c[2][1] + offset
-        source = list(c[0])
-        target = list(c[1])
-        if  char_list[idx_s:idx_e] == source:
-            char_list[idx_s:idx_e] = target
-            offset += len(target) - len(source)
-    correct_text = ''.join(char_list)
+    correct_text = apply_corrections(text, corrections)
     return correct_text, corrections
 
 
@@ -162,7 +149,6 @@ class GECToR(tornado.web.RequestHandler):
             source_sents_with_idx = add_sents_idx(text, sentences)
             for sent, source_tokens, pred_tokens, iter_label_idxs, iter_probs, iter_error_probs in zip(sentences, batch, pred_tokens_batch, edit_idxs_batch, edit_probas_batch, error_probs_batch):
                 gec_corrections = extract_corrections_from_parallel_tokens(sent, source_tokens, pred_tokens)
-                gec_cor_sent = apply_corrections(sent, gec_corrections)
                 local_gec_corrections_list.append(gec_corrections)
 
             global_gec_corrections_list = deepcopy(local_gec_corrections_list)
@@ -172,18 +158,19 @@ class GECToR(tornado.web.RequestHandler):
                     change[2][1] += source_sents_with_idx[sent_id][1]
 
             global_gec_corrections = []
-            for corrections in global_gec_corrections:
+            for corrections in global_gec_corrections_list:
                 global_gec_corrections.extend(corrections)
 
             # generate correct text from the correction details
-            correct_text = apply_corrections(text, global_gec_corrections)
+            gec_correct_text = apply_corrections(text, global_gec_corrections)
 
             # Add LanguageTool result
             resp['status'] = True
             resp['input'] = text
-            resp['output'] = correct_text
+            resp['output'] = gec_correct_text
             resp['corrections'] = global_gec_corrections
-            resp['lt_correct_text'], _ = language_tool_correct(correct_text)
+
+            resp['lt_correct_text'], _ = language_tool_correct(gec_correct_text)
             resp['lt_corrections'] = extract_corrections_from_parallel_text(text, resp['lt_correct_text'])
             if config.get('debug_info', True):
                 resp['debug_info'] = debug_text_output
