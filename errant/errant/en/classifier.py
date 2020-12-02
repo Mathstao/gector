@@ -34,6 +34,7 @@ def load_pos_map(path):
         map_dict["GW"] = "X"
         map_dict["NFP"] = "X"
         map_dict["XX"] = "X"
+        map_dict["_SP"] = "X"
     return map_dict
 
 # Classifier resources
