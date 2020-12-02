@@ -1,4 +1,6 @@
 import json
+
+from torch import alpha_dropout
 import spacy
 import logging
 import requests
@@ -64,11 +66,14 @@ def language_tool_correct(text):
 def extract_corrections_from_parallel_text(orig_text, cor_text):
     orig = annotator.parse(orig_text, True)
     cor = annotator.parse(cor_text, True)
-    edits = annotator.annotate(orig, cor, need_tag=False)
+    corrections = extract_corrections_from_parallel_tokens(orig_text, orig, cor)
+    return corrections
 
+
+def extract_corrections_from_parallel_tokens(orig_text, orig, cor):
+    edits = annotator.annotate(orig, cor, need_tag=False)
     orig_tokens_with_idx = add_tokens_idx(orig_text, orig)
     orig_tokens_with_idx
-
     corrections = []
     for e in edits:
         o_char_start = orig_tokens_with_idx[e.o_start][1]
@@ -149,50 +154,32 @@ class GECToR(tornado.web.RequestHandler):
             del debug_text_output_list
 
             # fetch correction detail
-            correct_details = []
-            corrections = []
+            local_gec_corrections_list = []
             source_sents_with_idx = add_sents_idx(text, sentences)
             for sent, source_tokens, pred_tokens, iter_label_idxs, iter_probs, iter_error_probs in zip(sentences, batch, pred_tokens_batch, edit_idxs_batch, edit_probas_batch, error_probs_batch):
-                try:
-                    # detail = model.generate_correct_detail(sent, source_tokens, pred_tokens, iter_label_idxs, iter_probs, iter_error_probs, config)
-                    detail = extract_corrections_from_parallel_text(' '.join(source_tokens), ' '.join(pred_tokens))
-                    correct_details.append(detail)
-                except Exception as e:
-                    logging.error(e, exc_info=True)
-                    print('********'*5)
-                    print(sent)
-                    print(source_tokens)
-                    print(pred_tokens)
-                    print(iter_label_idxs)
+                # detail = model.generate_correct_detail(sent, source_tokens, pred_tokens, iter_label_idxs, iter_probs, iter_error_probs, config)
+                gec_corrections = extract_corrections_from_parallel_tokens(sent, source_tokens, pred_tokens)
+                gec_cor_sent = apply_corrections(sent, gec_corrections)
+                local_gec_corrections_list.append(gec_corrections)
 
-            global_correct_details = deepcopy(correct_details)
-            for sent_id, detail in enumerate(global_correct_details):
-                for change in detail:
+            global_gec_corrections_list = deepcopy(local_gec_corrections_list)
+            for sent_id, corrections in enumerate(global_gec_corrections_list):
+                for change in corrections:
                     change[2][0] += source_sents_with_idx[sent_id][1]
                     change[2][1] += source_sents_with_idx[sent_id][1]
 
-            for details in global_correct_details:
-                for c in details:
-                    corrections.append(c)
+            global_gec_corrections = []
+            for corrections in global_gec_corrections:
+                global_gec_corrections.extend(corrections)
 
             # generate correct text from the correction details
-            offset = 0
-            char_list = list(text)
-            for c in corrections:
-                idx_s = c[2][0] + offset
-                idx_e = c[2][1] + offset
-                source = list(c[0])
-                target = list(c[1])
-                if  char_list[idx_s:idx_e] == source:
-                    char_list[idx_s:idx_e] = target
-                    offset += len(target) - len(source)
-            correct_text = ''.join(char_list)
+            correct_text = apply_corrections(text, global_gec_corrections)
 
             # Add LanguageTool result
             resp['status'] = True
             resp['input'] = text
             resp['output'] = correct_text
-            resp['corrections'] = corrections
+            resp['corrections'] = global_gec_corrections
             resp['lt_correct_text'], _ = language_tool_correct(correct_text)
             resp['lt_corrections'] = extract_corrections_from_parallel_text(text, resp['lt_correct_text'])
             if config.get('debug_info', True):
