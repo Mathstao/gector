@@ -66,11 +66,12 @@ class Annotator:
     # Input 3: A flag for standard Levenshtein alignment
     # Input 4: A flag for merging strategy
     # Output: A list of automatically extracted, typed Edit objects
-    def annotate(self, orig, cor, lev=False, merging="rules"):
+    def annotate(self, orig, cor, lev=False, merging="rules", need_tag=True):
         alignment = self.align(orig, cor, lev)
         edits = self.merge(alignment, merging)
-        for edit in edits:
-            edit = self.classify(edit)
+        if need_tag:
+            for edit in edits:
+                edit = self.classify(edit)
         return edits
 
     # Input 1: An original text string parsed by spacy

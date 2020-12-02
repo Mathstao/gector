@@ -64,7 +64,7 @@ def language_tool_correct(text):
 def extract_corrections_from_parallel_text(orig_text, cor_text):
     orig = annotator.parse(orig_text, True)
     cor = annotator.parse(cor_text, True)
-    edits = annotator.annotate(orig, cor)
+    edits = annotator.annotate(orig, cor, need_tag=False)
 
     orig_tokens_with_idx = add_tokens_idx(orig_text, orig)
     orig_tokens_with_idx
@@ -146,7 +146,7 @@ class GECToR(tornado.web.RequestHandler):
                     debug_text_output_list.append('\n')
                 debug_text_output_list.append('='*80+'\n')
             debug_text_output = '\n'.join(debug_text_output_list)
-            del debug_text_output_list
+            del debug_text_output_list
 
             # fetch correction detail
             correct_details = []
