@@ -159,54 +159,55 @@ class GECToR(tornado.web.RequestHandler):
             del debug_text_output_list
 
             # fetch correction detail
-            local_gec_corrections_list = []
+            local_corrections_list = []
             source_sents_with_idx = add_sents_idx(text, sentences)
-            for sent, source_tokens, pred_tokens, iter_label_idxs, iter_probs, iter_error_probs in zip(sentences, batch, pred_tokens_batch, edit_idxs_batch, edit_probas_batch, error_probs_batch):
+            for sent, source_tokens, pred_tokens, iter_label_idxs, iter_probs, iter_error_probs, last_error_prob in zip(
+                sentences, batch, pred_tokens_batch, edit_idxs_batch, edit_probas_batch, error_probs_batch, last_error_prob_batch):
                 gec_corrections = extract_corrections_from_parallel_tokens(sent, source_tokens, pred_tokens)
-                local_gec_corrections_list.append(gec_corrections)
+                gec_correct_text = apply_corrections(sent, gec_corrections)
+                # Condiftions to call LanguageTool
+                if last_error_prob > 0.7 or '@@UNKNOWN@@' in iter_label_idxs[-1]:
+                    logging.info('sentence[{}] edits[{}] error_prob[{}] need call LanguageTool'.format(sent, iter_label_idxs[-1], last_error_prob))
+                    lt_correct_text, _ = language_tool_correct(gec_correct_text)
+                    lt_corrections = extract_corrections_from_parallel_text(sent, lt_correct_text)
+                else:
+                    logging.info('sentence[{}] edits[{}] error_prob[{}] skip calling LanguageTool'.format(sent, iter_label_idxs[-1], last_error_prob))
+                    lt_correct_text = gec_correct_text
+                    lt_corrections = gec_corrections
+                local_corrections_list.append(lt_corrections)
 
-            global_gec_corrections_list = deepcopy(local_gec_corrections_list)
-            for sent_id, corrections in enumerate(global_gec_corrections_list):
+            global_corrections_list = deepcopy(local_corrections_list)
+            for sent_id, corrections in enumerate(global_corrections_list):
                 for change in corrections:
                     change[2][0] += source_sents_with_idx[sent_id][1]
                     change[2][1] += source_sents_with_idx[sent_id][1]
 
-            global_gec_corrections = []
-            for corrections in global_gec_corrections_list:
-                global_gec_corrections.extend(corrections)
+            global_corrections = []
+            for corrections in global_corrections_list:
+                global_corrections.extend(corrections)
 
             # generate correct text from the correction details
-            gec_correct_text = apply_corrections(text, global_gec_corrections)
+            correct_text = apply_corrections(text, global_corrections)
 
             # Add LanguageTool result
             resp['status'] = True
             resp['input'] = text
-            resp['gec_correct_text'] = gec_correct_text
-            resp['gec_corrections'] = global_gec_corrections
-            resp['lt_correct_text'], _ = language_tool_correct(gec_correct_text)
-            resp['lt_corrections'] = extract_corrections_from_parallel_text(text, resp['lt_correct_text'])
+            resp['output'] = correct_text
+            resp['corrections'] = global_corrections
             if config.get('debug_info', True):
                 resp['debug_info'] = debug_text_output
             else:
                 resp['debug_info'] = ''
-            filtered_corrections = filter_white_corrections(resp['lt_corrections'], ['Citao', 'Guibin', 'OnMail'])
-            resp['final_corrections'] = filtered_corrections
-            resp['final_output'] = apply_corrections(text, resp['final_corrections'])
             
         except:
             logging.error('Processing failed.\n******\n\n{}\n\n******'.format(text), exc_info=True)
             resp['status'] = False
             resp['input'] = text
-            resp['gec_correct_text'] = text
-            resp['gec_corrections'] = []
-            resp['lt_correct_text'] = text
-            resp['lt_corrections'] = []
-            resp['debug_info'] = ''
-            resp['final_corrections'] = []
-            resp['final_output'] = text
+            resp['output'] = text
+            resp['corrections'] = []
         finally:
             self.write(json.dumps(resp))
-            logging.info("\nInput  [{}]\nOutput [{}]\nCorrections [{}]".format(resp['input'], resp['final_output'], resp['final_corrections']))
+            logging.info("\nInput  [{}]\nOutput [{}]\nCorrections [{}]".format(resp['input'], resp['output'], resp['corrections']))
 
 def make_app():
     return tornado.web.Application([
