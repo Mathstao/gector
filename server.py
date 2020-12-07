@@ -9,6 +9,7 @@ from time import time
 from gector.gec_model import GecBERTModel
 from utils.helpers import add_sents_idx, add_tokens_idx
 from copy import deepcopy
+import pprint
 import errant
 
 logging.basicConfig(format='%(levelname)s: [%(asctime)s][%(filename)s:%(lineno)d] %(message)s',level=logging.INFO)
@@ -30,9 +31,15 @@ DEFAULT_CONFIG = {
     'min_probability': 0.5,
     'min_error_probability': 0.7,
     'case_sensitive': True,
+    'languagetool_post_process': True,
+    'languagetool_call_thres': 0.7,
+    'whitelist': [],
+    'with_debug_info': True
 }
 
 LANGUAGE_TOOL_URL = 'http://localhost:8081/v2/check'
+UNKNOWN_LABEL_INDEX = 5000
+
 
 def language_tool_correct(text):
     data = {
@@ -46,8 +53,10 @@ def language_tool_correct(text):
         idx_s = r["offset"]
         idx_e = idx_s + r["length"]
         corrections.append([text[idx_s:idx_e], r["replacements"][0]['value'], [idx_s, idx_e]])
+        # Limit the number of 'replacements'
+        r["replacements"] = r["replacements"][:5]
     correct_text = apply_corrections(text, corrections)
-    return correct_text, corrections
+    return correct_text, corrections, result
 
 
 def extract_corrections_from_parallel_text(orig_text, cor_text):
@@ -58,15 +67,20 @@ def extract_corrections_from_parallel_text(orig_text, cor_text):
 
 
 def extract_corrections_from_parallel_tokens(orig_text, orig, cor):
+    print(orig_text)
+    print(orig)
+    print(cor)
     if isinstance(orig, list):
         orig = annotator.parse(' '.join(orig), True)
     if isinstance(cor, list):
         cor = annotator.parse(' '.join(cor), True)
     edits = annotator.annotate(orig, cor, merging="rules", need_tag=False)
     orig_tokens_with_idx = add_tokens_idx(orig_text, orig)
+    print(orig_tokens_with_idx)
     orig_tokens_with_idx
     corrections = []
     for e in edits:
+        print(e.__str__())
         o_char_start = orig_tokens_with_idx[e.o_start][1]
         o_char_end = orig_tokens_with_idx[e.o_end-1][2]
         orig_substr = e.o_str
@@ -92,6 +106,8 @@ def apply_corrections(text, corrections):
 
 
 def filter_white_corrections(corrections, whitelist):
+    if not whitelist:
+        return corrections
     filtered_corrections = []
     for c in corrections:
         skip_flag = False
@@ -105,18 +121,47 @@ def filter_white_corrections(corrections, whitelist):
     return filtered_corrections
 
 
+def merge_adjacent_corrections(corrections):
+    cor_id = 0
+    last_end_idx = 0
+    accumulated = []
+    merged_corrections = []
+    while cor_id < len(corrections):
+        curr_cor = corrections[cor_id]
+        if last_end_idx != 0 and curr_cor[2][0] == last_end_idx:
+            accumulated.append(curr_cor)
+            last_end_idx = curr_cor[2][1]
+        else:
+            if accumulated:
+                merged_corrections.append([
+                    ''.join(x[0] for x in accumulated),
+                    ''.join(x[1] for x in accumulated),
+                    [accumulated[0][2][0], accumulated[-1][2][1]]
+                ])
+            accumulated = [curr_cor]
+            last_end_idx = curr_cor[2][1]
+        cor_id += 1
+    if accumulated:
+        merged_corrections.append([
+            ''.join(x[0] for x in accumulated),
+            ''.join(x[1] for x in accumulated),
+            [accumulated[0][2][0], accumulated[-1][2][1]]
+        ])
+    return merged_corrections
+
+
 class GECToR(tornado.web.RequestHandler):
     def post(self):
         resp ={}
-        try:
-            data = json.loads(self.request.body)
-            text = data['text']
-            config = DEFAULT_CONFIG.copy()
-            for field in ['iterations', 'min_probability', 'min_error_probability', 'case_sensitive']:
-                if field in data:
-                    config[field] = data[field]
+        data = json.loads(self.request.body)
+        text = data['text']
+        config = DEFAULT_CONFIG.copy()
 
-            # tokenize the input text
+        for field in ['iterations', 'min_probability', 'min_error_probability', 'case_sensitive', 'languagetool_post_process', 'languagetool_call_thres', 'whitelist', 'with_debug_info']:
+            if field in data:
+                config[field] = data[field]
+        try:
+            # Tokenize the input text
             batch = []
             doc = nlp(text)
             sentences = []
@@ -128,7 +173,7 @@ class GECToR(tornado.web.RequestHandler):
                 tokens = [i.strip() for i in tokens if i.strip()]
                 batch.append(tokens)
 
-            # batch call
+            # Batch call
             result = model.handle_batch(full_batch=batch, config=config)
             pred_tokens_batch = result['pred_tokens_batch']
             edit_probas_batch = result['edit_probas_batch']
@@ -137,45 +182,72 @@ class GECToR(tornado.web.RequestHandler):
             error_probs_batch = result['error_probs_batch']
             last_error_prob_batch = result['last_error_prob_batch']
 
-            # origanize the debuging information.
             debug_text_output_list = []
-            for ori_token, curr_error_probs, curr_edit_idxs, curr_edit_probs, curr_iter_pred in zip(batch, error_probs_batch, edit_idxs_batch, edit_probas_batch, inter_pred_tokens_batch):
-                inter_corrected_tokens = [ori_token] + curr_iter_pred
-                inter_corrected_tokens = [['__START__']+i for i in inter_corrected_tokens]
-                for i, (iter_error_prob, iter_idxs, iter_probs, iter_pred) in enumerate(zip(curr_error_probs, curr_edit_idxs, curr_edit_probs, curr_iter_pred)):
-                    iter_labels = [model.vocab.get_token_from_index(i, namespace='labels') for i in iter_idxs]
-                    debug_text_output_list.append('<Iteration {}>'.format(i+1))
-                    debug_text_output_list.append('Sentence Error Probability: {}\n'.format(iter_error_prob))
-                    debug_text_output_list.append('#### Before ####\n{}\n'.format(' '.join(inter_corrected_tokens[i][1:])))
-                    debug_text_output_list.append('#### After #####\n{}\n'.format(' '.join(inter_corrected_tokens[i+1][1:])))
-                    debug_text_output_list.append('[Model Correction]')
-                    debug_text_output_list.append('-'*80)
-                    for _token, _edit, _proba in zip(inter_corrected_tokens[i], iter_labels, iter_probs):
-                        debug_text_output_list.append(_token.ljust(30)+_edit.ljust(30)+str(_proba))
-                    debug_text_output_list.append('-'*80)
-                    debug_text_output_list.append('\n')
-                debug_text_output_list.append('='*80+'\n')
+
+            # Fetch correction detail
+            local_corrections_list = []
+            source_sents_with_idx = add_sents_idx(text, sentences)
+            for sent_id, (sent, source_tokens, pred_tokens, iter_label_idxs, iter_probs, curr_iter_pred, iter_error_probs, last_error_prob) in enumerate(zip(
+                sentences, batch, pred_tokens_batch, edit_idxs_batch, edit_probas_batch, inter_pred_tokens_batch, error_probs_batch, last_error_prob_batch)):
+
+                # # Skip
+                # if iter_label_idxs == []:
+                #     local_corrections_list.append([])
+                #     continue
+
+                gec_corrections = extract_corrections_from_parallel_tokens(sent, source_tokens, pred_tokens)
+                gec_correct_text = apply_corrections(sent, gec_corrections)
+
+                # Origanize the debuging information.
+                if config['with_debug_info']:
+                    debug_text_output_list.append('{} Sentence_{} {}'.format('='*34, sent_id+1, '='*34))
+                    debug_text_output_list.append('[GECToR Model]')
+                    inter_corrected_tokens = [source_tokens] + curr_iter_pred
+                    inter_corrected_tokens = [['__START__']+i for i in inter_corrected_tokens]
+                    for i, (iter_error_prob, iter_idxs, iter_probs) in enumerate(zip(iter_error_probs, iter_label_idxs, iter_probs)):
+                        iter_labels = [model.vocab.get_token_from_index(i, namespace='labels') for i in iter_idxs]
+                        debug_text_output_list.append('<Iteration {}>'.format(i+1))
+                        debug_text_output_list.append('Sentence Error Probability: {}'.format(iter_error_prob))
+                        debug_text_output_list.append('# From #  {}'.format(' '.join(inter_corrected_tokens[i][1:])))
+                        debug_text_output_list.append('#  To  #  {}'.format(' '.join(inter_corrected_tokens[i+1][1:])))
+                        debug_text_output_list.append('-'*80)
+                        for _token, _edit, _proba in zip(inter_corrected_tokens[i], iter_labels, iter_probs):
+                            debug_text_output_list.append(_token.ljust(30)+_edit.ljust(30)+str(_proba))
+                        debug_text_output_list.append('-'*80+'\n')
+                # Condiftions to call LanguageTool
+                if config['languagetool_post_process'] and \
+                    (last_error_prob > config['languagetool_call_thres'] or \
+                     (len(iter_label_idxs)>0 and UNKNOWN_LABEL_INDEX in iter_label_idxs[-1])):
+                    logging.info('sentence[{}] need_lt[{}] edits[{}] error_prob[{}] need call LanguageTool'.format(gec_correct_text, config['languagetool_post_process'], iter_label_idxs[-1], last_error_prob))
+                    # lt_correct_text, _ = language_tool_correct(gec_correct_text)
+                    # lt_corrections = extract_corrections_from_parallel_text(sent, lt_correct_text)
+                    lt_correct_text, lt_corrections, lt_result = language_tool_correct(sent)
+                    if config['with_debug_info']:
+                        debug_text_output_list.append('[LanguageTool]')
+                        debug_text_output_list.append('# From #  {}'.format(gec_correct_text))
+                        debug_text_output_list.append('#  To  #  {}'.format(lt_correct_text))
+                        debug_text_output_list.append('-'*80)
+                        debug_text_output_list.append(pprint.pformat(lt_result['matches'], indent=2))
+                        debug_text_output_list.append('-'*80+'\n')
+                else:
+                    logging.info('sentence[{}] need_lt[{}] edits[{}] error_prob[{}] skip calling LanguageTool'.format(gec_correct_text, config['languagetool_post_process'], iter_label_idxs[-1], last_error_prob))
+                    lt_correct_text = gec_correct_text
+                    lt_corrections = gec_corrections
+                
+                final_corrections = extract_corrections_from_parallel_text(sent, lt_correct_text)
+
+                # Filter corrections related to whitelist
+                final_corrections = filter_white_corrections(final_corrections, config['whitelist'])
+                # Merge adjacent corrections
+                final_corrections = merge_adjacent_corrections(final_corrections)
+                
+                local_corrections_list.append(final_corrections)
+
+            # Debugging layout
             debug_text_output = '\n'.join(debug_text_output_list)
             del debug_text_output_list
 
-            # fetch correction detail
-            local_corrections_list = []
-            source_sents_with_idx = add_sents_idx(text, sentences)
-            for sent, source_tokens, pred_tokens, iter_label_idxs, iter_probs, iter_error_probs, last_error_prob in zip(
-                sentences, batch, pred_tokens_batch, edit_idxs_batch, edit_probas_batch, error_probs_batch, last_error_prob_batch):
-                gec_corrections = extract_corrections_from_parallel_tokens(sent, source_tokens, pred_tokens)
-                gec_correct_text = apply_corrections(sent, gec_corrections)
-                # Condiftions to call LanguageTool
-                if last_error_prob > 0.7 or '@@UNKNOWN@@' in iter_label_idxs[-1]:
-                    logging.info('sentence[{}] edits[{}] error_prob[{}] need call LanguageTool'.format(sent, iter_label_idxs[-1], last_error_prob))
-                    lt_correct_text, _ = language_tool_correct(gec_correct_text)
-                    lt_corrections = extract_corrections_from_parallel_text(sent, lt_correct_text)
-                else:
-                    logging.info('sentence[{}] edits[{}] error_prob[{}] skip calling LanguageTool'.format(sent, iter_label_idxs[-1], last_error_prob))
-                    lt_correct_text = gec_correct_text
-                    lt_corrections = gec_corrections
-                local_corrections_list.append(lt_corrections)
-
+            # Convert local corrections into global corrections
             global_corrections_list = deepcopy(local_corrections_list)
             for sent_id, corrections in enumerate(global_corrections_list):
                 for change in corrections:
@@ -186,18 +258,14 @@ class GECToR(tornado.web.RequestHandler):
             for corrections in global_corrections_list:
                 global_corrections.extend(corrections)
 
-            # generate correct text from the correction details
+            # Generate correct text from the correction details
             correct_text = apply_corrections(text, global_corrections)
 
-            # Add LanguageTool result
             resp['status'] = True
             resp['input'] = text
             resp['output'] = correct_text
             resp['corrections'] = global_corrections
-            if config.get('debug_info', True):
-                resp['debug_info'] = debug_text_output
-            else:
-                resp['debug_info'] = ''
+            resp['debug_info'] = debug_text_output
             
         except:
             logging.error('Processing failed.\n******\n\n{}\n\n******'.format(text), exc_info=True)
@@ -205,6 +273,7 @@ class GECToR(tornado.web.RequestHandler):
             resp['input'] = text
             resp['output'] = text
             resp['corrections'] = []
+            resp['debug_info'] = ''
         finally:
             self.write(json.dumps(resp))
             logging.info("\nInput  [{}]\nOutput [{}]\nCorrections [{}]".format(resp['input'], resp['output'], resp['corrections']))
