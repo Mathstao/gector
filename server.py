@@ -1,3 +1,4 @@
+from errant.errant import edit
 import json
 
 from torch import alpha_dropout
@@ -7,7 +8,7 @@ import requests
 import tornado.web
 from time import time
 from gector.gec_model import GecBERTModel
-from utils.helpers import add_sents_idx, add_tokens_idx, token_level_edits
+from utils.helpers import add_sents_idx, add_tokens_idx, token_level_edits, forward_merge_corrections, backward_merge_corrections
 from copy import deepcopy
 import pprint
 import errant
@@ -60,8 +61,10 @@ def language_tool_correct(text):
 
 
 def extract_corrections_from_parallel_text(orig_text, cor_text):
-    orig = annotator.parse(orig_text, True)
-    cor = annotator.parse(cor_text, True)
+    # orig = annotator.parse(orig_text, True)
+    # cor = annotator.parse(cor_text, True)
+    orig = [i.text for i in nlp(orig_text)]
+    cor = [i.text for i in nlp(cor_text)]
     corrections = extract_corrections_from_parallel_tokens(orig_text, orig, cor)
     return corrections
 
@@ -90,35 +93,22 @@ def extract_corrections_from_parallel_text(orig_text, cor_text):
 
 
 def extract_corrections_from_parallel_tokens(orig_text, orig, cor):
-    _, _, operation, edits = token_level_edits(orig, cor)
+    """
+    corrections:
+    [['I', 'I', (0, 1)],
+    ['went', 'went to', (2, 6)],
+    ['school', 'school', (7, 13)],
+    ['this ysterday', 'yesterday ', (14, 27)]]
+    """
+    _, _, _, edits = token_level_edits(orig, cor)
     align_orig_tokens = [i[0] for i in edits]
     align_cor_tokens = [i[1] for i in edits]
     orig_tokens_with_index = add_tokens_idx(orig_text, align_orig_tokens)
-    remains = []
-    result = []
+    corrections = []
     for orig_token, pred_token in zip(orig_tokens_with_index, align_cor_tokens):
-        print([orig_token[0], pred_token])
-        if orig_token[0] == pred_token:
-            if remains:
-                start_idx = remains[0][2][0]
-                end_idx = remains[-1][2][1]
-                cor_sub_string = ' '.join([r[1] for r in remains])
-                orig_sub_string = orig_text[start_idx:end_idx]
-                result.append([orig_sub_string, cor_sub_string, (start_idx, end_idx)])
-                remains = []
-            else:
-                result.append([orig_token[0], pred_token, (orig_token[1][0], orig_token[1][1])])
-                pass
-        else:
-            remains.append([orig_token[0], pred_token, orig_token[1]])
-    if remains:
-        start_idx = remains[0][2][0]
-        end_idx = remains[-1][2][1]
-        cor_sub_string = ' '.join([r[1] for r in remains])
-        orig_sub_string = orig_text[start_idx:end_idx]
-        result.append([orig_sub_string, cor_sub_string, (start_idx, end_idx)])
-        remains = []
-    return result
+        corrections.append([orig_token[0], pred_token, (orig_token[1][0], orig_token[1][1])]) 
+    corrections = forward_merge_corrections(backward_merge_corrections(corrections))
+    return corrections
 
 
 def apply_corrections(text, corrections):
@@ -126,13 +116,20 @@ def apply_corrections(text, corrections):
     offset = 0
     char_list = list(text)
     for c in corrections:
-        idx_s = c[2][0] + offset
-        idx_e = c[2][1] + offset
-        source = list(c[0])
-        target = list(c[1])
-        if  char_list[idx_s:idx_e] == source:
-            char_list[idx_s:idx_e] = target
-            offset += len(target) - len(source)
+        # 'APPEND' edit
+        if c[0] == '':
+            idx = c[2][0]
+            append_list = [' '] + list(c[1])
+            char_list = char_list[:idx] + append_list + char_list[:idx:]
+            offset += len(append_list)
+        else:
+            idx_s = c[2][0] + offset
+            idx_e = c[2][1] + offset
+            source = list(c[0])
+            target = list(c[1])
+            if  char_list[idx_s:idx_e] == source:
+                char_list[idx_s:idx_e] = target
+                offset += len(target) - len(source)
     correct_text = ''.join(char_list)
     return correct_text
 

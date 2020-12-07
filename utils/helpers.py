@@ -311,3 +311,110 @@ def token_level_edits(tokens1, tokens2):
     operation = operation[::-1]
     edit = edit[::-1]
     return spokenstr, writtenstr, operation, edit
+
+
+def backward_merge_corrections(orig_text, corrections):
+    """
+    [['I', 'I', (0, 1)],
+    ['went', 'went', (2, 6)],
+    ['', 'to', (6, 6)],
+    ['school', 'school', (7, 13)]]
+
+    ->
+
+    [['I', 'I', (0, 1)],
+    ['went', 'went to', (2, 6)],
+    ['school', 'school', (7, 13)]]
+    """
+    new_corrections = []
+    i = len(corrections) - 1
+    remains = []
+    remains_len = 0
+
+    while i > 0:
+        r = corrections[i]
+        if r[0] != r[1]:
+            remains.append(r)
+            remains_len += min(len(r[0]), len(r[1]))
+        else:
+            if remains:
+                if remains_len > 0:
+                    remains = remains[::-1]
+                    start_idx = remains[0][2][0]
+                    end_idx = remains[-1][2][1]
+                    cor_sub_string = ' '.join([r[1] for r in remains])
+                    orig_sub_string = orig_text[start_idx:end_idx]
+                    new_corrections.append([orig_sub_string, cor_sub_string, (start_idx, end_idx)])
+                    remains = []
+                    remains_len = 0
+                    new_corrections.append(r)
+                else:
+                    remains.append(r)
+                    remains_len += min(len(r[0]), len(r[1]))
+            else:
+                new_corrections.append(r)
+        i -= 1
+
+    if remains!=[] and remains_len>0:
+        remains = remains[::-1]
+        start_idx = remains[0][2][0]
+        end_idx = remains[-1][2][1]
+        cor_sub_string = ' '.join([r[1] for r in remains])
+        orig_sub_string = orig_text[start_idx:end_idx]
+        new_corrections.append([orig_sub_string, cor_sub_string, (start_idx, end_idx)])
+
+    new_corrections.append(corrections[0])
+    new_corrections = new_corrections[::-1]
+    return new_corrections
+
+
+def forward_merge_corrections(orig_text, corrections):
+    """
+    [['I', 'I', (0, 1)],
+    ['went', 'went', (2, 6)],
+    ['', 'to', (6, 6)],
+    ['school', 'school', (7, 13)]]
+
+    ->
+
+    [['I', 'I', (0, 1)],
+    ['went', 'went', (2, 6)],
+    ['school', 'to school', (7, 13)]]
+    """
+    new_corrections = []
+    i = 0
+    remains = []
+    remains_len = 0
+
+    while i < len(corrections)-1:
+        r = corrections[i]
+        if r[0] != r[1]:
+            remains.append(r)
+            remains_len += min(len(r[0]), len(r[1]))
+        else:
+            if remains:
+                if remains_len > 0:
+                    start_idx = remains[0][2][0]
+                    end_idx = remains[-1][2][1]
+                    cor_sub_string = ' '.join([r[1] for r in remains])
+                    orig_sub_string = orig_text[start_idx:end_idx]
+                    new_corrections.append([orig_sub_string, cor_sub_string, (start_idx, end_idx)])
+                    remains = []
+                    remains_len = 0
+                    new_corrections.append(r)
+                else:
+                    remains.append(r)
+                    remains_len += min(len(r[0]), len(r[1]))
+            else:
+                new_corrections.append(r)
+        i += 1
+
+    if remains!=[] and remains_len>0:
+        start_idx = remains[0][2][0]
+        end_idx = remains[-1][2][1]
+        cor_sub_string = ' '.join([r[1] for r in remains])
+        orig_sub_string = orig_text[start_idx:end_idx]
+        new_corrections.append([orig_sub_string, cor_sub_string, (start_idx, end_idx)])
+
+    new_corrections.append(corrections[-1])
+    return new_corrections
