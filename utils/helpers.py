@@ -18,12 +18,12 @@ def get_verb_form_dicts():
     with open(path_to_dict, encoding="utf-8") as f:
         for line in f:
             words, tags = line.split(":")
-            word1, word2 = words.split("_")
+            word1, tokens2 = words.split("_")
             tag1, tag2 = tags.split("_")
             decode_key = f"{word1}_{tag1}_{tag2.strip()}"
             if decode_key not in decode:
                 encode[words] = tags
-                decode[decode_key] = word2
+                decode[decode_key] = tokens2
     return encode, decode
 
 
@@ -238,3 +238,76 @@ def add_sents_idx(text, source_sentences):
         accumulated_lenght = sent_end_idx
         tmp_text = text[sent_end_idx:]
     return sents_with_idx
+
+
+def minDistance(tokens1, tokens2):
+    if len(tokens1) == 0:
+        return len(tokens2)
+    elif len(tokens2) == 0:
+        return len(tokens1)
+    M = len(tokens1)
+    N = len(tokens2)
+    output = [[0] * (N + 1) for _ in range(M + 1)]
+    for i in range(M + 1):
+        for j in range(N + 1):
+            if i == 0 and j == 0:
+                output[i][j] = 0
+            elif i == 0 and j != 0:
+                output[i][j] = j
+            elif i != 0 and j == 0:
+                output[i][j] = i
+            elif tokens1[i - 1] == tokens2[j - 1]:
+                output[i][j] = output[i - 1][j - 1]
+            else:
+                output[i][j] = min(output[i - 1][j - 1] + 1, output[i - 1][j] + 1, output[i][j - 1] + 1)
+    return output
+
+
+def token_level_edits(tokens1, tokens2):
+    dp = minDistance(tokens1,tokens2)
+    m = len(dp)-1
+    n = len(dp[0])-1
+    operation = []
+    spokenstr = []
+    writtenstr = []
+    edit = []
+
+    while n>=0 or m>=0:
+        if n and dp[m][n-1]+1 == dp[m][n]:
+            edit.append(['', tokens2[n-1]])
+            print("insert [%s]" %(tokens2[n-1]))
+            spokenstr.append("insert")
+            writtenstr.append(tokens2[n-1])
+            operation.append("NULLREF:"+tokens2[n-1])
+            n -= 1
+            continue
+        if m and dp[m-1][n]+1 == dp[m][n]:
+            edit.append([tokens1[m-1], ''])
+            print("delete [%s]" %(tokens1[m-1]))
+            spokenstr.append(tokens1[m-1])
+            writtenstr.append("delete")
+            operation.append(tokens1[m-1]+":NULLHYP")
+            m -= 1
+            continue
+        if dp[m-1][n-1]+1 == dp[m][n]:
+            edit.append([tokens1[m-1], tokens2[n-1]])
+            print("replace [%s] [%s]" %(tokens1[m-1],tokens2[n-1]))
+            spokenstr.append(tokens1[m - 1])
+            writtenstr.append(tokens2[n-1])
+            operation.append(tokens1[m - 1] + ":"+tokens2[n-1])
+            n -= 1
+            m -= 1
+            continue
+        if dp[m-1][n-1] == dp[m][n]:
+            edit.append([tokens1[m-1], tokens1[m-1]])
+            print("keep")
+            spokenstr.append(' ')
+            writtenstr.append(' ')
+            operation.append(tokens1[m-1])
+        n -= 1
+        m -= 1
+    spokenstr = spokenstr[::-1]
+    writtenstr = writtenstr[::-1]
+    operation = operation[::-1]
+    edit = edit[::-1]
+    return spokenstr, writtenstr, operation, edit

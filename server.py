@@ -7,7 +7,7 @@ import requests
 import tornado.web
 from time import time
 from gector.gec_model import GecBERTModel
-from utils.helpers import add_sents_idx, add_tokens_idx
+from utils.helpers import add_sents_idx, add_tokens_idx, token_level_edits
 from copy import deepcopy
 import pprint
 import errant
@@ -66,27 +66,59 @@ def extract_corrections_from_parallel_text(orig_text, cor_text):
     return corrections
 
 
+# def extract_corrections_from_parallel_tokens(orig_text, orig, cor):
+#     # print(orig_text)
+#     # print(orig)
+#     # print(cor)
+#     if isinstance(orig, list):
+#         orig = annotator.parse(' '.join(orig), True)
+#     if isinstance(cor, list):
+#         cor = annotator.parse(' '.join(cor), True)
+#     edits = annotator.annotate(orig, cor, merging="rules", need_tag=False)
+#     orig_tokens_with_idx = add_tokens_idx(orig_text, orig)
+#     # print(orig_tokens_with_idx)
+#     orig_tokens_with_idx
+#     corrections = []
+#     for e in edits:
+#         # print(e.__str__())
+#         o_char_start = orig_tokens_with_idx[e.o_start][1]
+#         o_char_end = orig_tokens_with_idx[e.o_end-1][2]
+#         orig_substr = e.o_str
+#         pred_substr = e.c_str
+#         corrections.append([orig_substr, pred_substr, [o_char_start, o_char_end]])
+#     return corrections
+
+
 def extract_corrections_from_parallel_tokens(orig_text, orig, cor):
-    print(orig_text)
-    print(orig)
-    print(cor)
-    if isinstance(orig, list):
-        orig = annotator.parse(' '.join(orig), True)
-    if isinstance(cor, list):
-        cor = annotator.parse(' '.join(cor), True)
-    edits = annotator.annotate(orig, cor, merging="rules", need_tag=False)
-    orig_tokens_with_idx = add_tokens_idx(orig_text, orig)
-    print(orig_tokens_with_idx)
-    orig_tokens_with_idx
-    corrections = []
-    for e in edits:
-        print(e.__str__())
-        o_char_start = orig_tokens_with_idx[e.o_start][1]
-        o_char_end = orig_tokens_with_idx[e.o_end-1][2]
-        orig_substr = e.o_str
-        pred_substr = e.c_str
-        corrections.append([orig_substr, pred_substr, [o_char_start, o_char_end]])
-    return corrections
+    _, _, operation, edits = token_level_edits(orig, cor)
+    align_orig_tokens = [i[0] for i in edits]
+    align_cor_tokens = [i[1] for i in edits]
+    orig_tokens_with_index = add_tokens_idx(orig_text, align_orig_tokens)
+    remains = []
+    result = []
+    for orig_token, pred_token in zip(orig_tokens_with_index, align_cor_tokens):
+        print([orig_token[0], pred_token])
+        if orig_token[0] == pred_token:
+            if remains:
+                start_idx = remains[0][2][0]
+                end_idx = remains[-1][2][1]
+                cor_sub_string = ' '.join([r[1] for r in remains])
+                orig_sub_string = orig_text[start_idx:end_idx]
+                result.append([orig_sub_string, cor_sub_string, (start_idx, end_idx)])
+                remains = []
+            else:
+                result.append([orig_token[0], pred_token, (orig_token[1][0], orig_token[1][1])])
+                pass
+        else:
+            remains.append([orig_token[0], pred_token, orig_token[1]])
+    if remains:
+        start_idx = remains[0][2][0]
+        end_idx = remains[-1][2][1]
+        cor_sub_string = ' '.join([r[1] for r in remains])
+        orig_sub_string = orig_text[start_idx:end_idx]
+        result.append([orig_sub_string, cor_sub_string, (start_idx, end_idx)])
+        remains = []
+    return result
 
 
 def apply_corrections(text, corrections):
@@ -195,8 +227,11 @@ class GECToR(tornado.web.RequestHandler):
                 #     local_corrections_list.append([])
                 #     continue
 
+                print([source_tokens, pred_tokens])
                 gec_corrections = extract_corrections_from_parallel_tokens(sent, source_tokens, pred_tokens)
+                print(gec_corrections)
                 gec_correct_text = apply_corrections(sent, gec_corrections)
+                print(gec_correct_text)
 
                 # Origanize the debuging information.
                 if config['with_debug_info']:
