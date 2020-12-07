@@ -1,4 +1,3 @@
-from errant.errant import edit
 import json
 
 from torch import alpha_dropout
@@ -95,19 +94,30 @@ def extract_corrections_from_parallel_text(orig_text, cor_text):
 def extract_corrections_from_parallel_tokens(orig_text, orig, cor):
     """
     corrections:
-    [['I', 'I', (0, 1)],
-    ['went', 'went to', (2, 6)],
-    ['school', 'school', (7, 13)],
-    ['this ysterday', 'yesterday ', (14, 27)]]
+    [['I', 'I', [0, 1]],
+    ['went', 'went to', [2, 6]],
+    ['school', 'school', [7, 13]],
+    ['this ysterday', 'yesterday ', [14, 27]]]
     """
     _, _, _, edits = token_level_edits(orig, cor)
     align_orig_tokens = [i[0] for i in edits]
     align_cor_tokens = [i[1] for i in edits]
-    orig_tokens_with_index = add_tokens_idx(orig_text, align_orig_tokens)
+    
+    orig_tokens_with_index = add_tokens_idx(orig_text, orig)
+    align_orig_tokens_with_index = add_tokens_idx(orig_text, align_orig_tokens)
+
     corrections = []
-    for orig_token, pred_token in zip(orig_tokens_with_index, align_cor_tokens):
-        corrections.append([orig_token[0], pred_token, (orig_token[1][0], orig_token[1][1])]) 
-    corrections = forward_merge_corrections(backward_merge_corrections(corrections))
+    for orig_token, pred_token in zip(align_orig_tokens_with_index, align_cor_tokens):
+        corrections.append([orig_token[0], pred_token, [orig_token[1][0], orig_token[1][1]]])
+    corrections = backward_merge_corrections(orig_text, corrections)
+    corrections = forward_merge_corrections(orig_text, corrections)
+    
+    # fix minor space issue
+    for i, (o, c) in enumerate(zip(orig_tokens_with_index, corrections)):
+        corrections[i] = [c[0].strip(), c[1], o[1]]
+
+    # filtering
+    corrections = [c for c in corrections if c[0]!=c[1]]
     return corrections
 
 
@@ -116,20 +126,13 @@ def apply_corrections(text, corrections):
     offset = 0
     char_list = list(text)
     for c in corrections:
-        # 'APPEND' edit
-        if c[0] == '':
-            idx = c[2][0]
-            append_list = [' '] + list(c[1])
-            char_list = char_list[:idx] + append_list + char_list[:idx:]
-            offset += len(append_list)
-        else:
-            idx_s = c[2][0] + offset
-            idx_e = c[2][1] + offset
-            source = list(c[0])
-            target = list(c[1])
-            if  char_list[idx_s:idx_e] == source:
-                char_list[idx_s:idx_e] = target
-                offset += len(target) - len(source)
+        idx_s = c[2][0] + offset
+        idx_e = c[2][1] + offset
+        source = list(c[0])
+        target = list(c[1])
+        if  char_list[idx_s:idx_e] == source:
+            char_list[idx_s:idx_e] = target
+            offset += len(target) - len(source)
     correct_text = ''.join(char_list)
     return correct_text
 
@@ -219,16 +222,15 @@ class GECToR(tornado.web.RequestHandler):
             for sent_id, (sent, source_tokens, pred_tokens, iter_label_idxs, iter_probs, curr_iter_pred, iter_error_probs, last_error_prob) in enumerate(zip(
                 sentences, batch, pred_tokens_batch, edit_idxs_batch, edit_probas_batch, inter_pred_tokens_batch, error_probs_batch, last_error_prob_batch)):
 
-                # # Skip
-                # if iter_label_idxs == []:
-                #     local_corrections_list.append([])
-                #     continue
+                # Skip
+                if iter_label_idxs == []:
+                    local_corrections_list.append([])
+                    continue
 
-                print([source_tokens, pred_tokens])
                 gec_corrections = extract_corrections_from_parallel_tokens(sent, source_tokens, pred_tokens)
-                print(gec_corrections)
+                print('gec_corrections', gec_corrections)
                 gec_correct_text = apply_corrections(sent, gec_corrections)
-                print(gec_correct_text)
+                print('gec_correct_text', gec_correct_text)
 
                 # Origanize the debuging information.
                 if config['with_debug_info']:
@@ -283,8 +285,8 @@ class GECToR(tornado.web.RequestHandler):
             global_corrections_list = deepcopy(local_corrections_list)
             for sent_id, corrections in enumerate(global_corrections_list):
                 for change in corrections:
-                    change[2][0] += source_sents_with_idx[sent_id][1]
-                    change[2][1] += source_sents_with_idx[sent_id][1]
+                    change[2][0] += source_sents_with_idx[sent_id][1][0]
+                    change[2][1] += source_sents_with_idx[sent_id][1][0]
 
             global_corrections = []
             for corrections in global_corrections_list:

@@ -220,7 +220,7 @@ def add_tokens_idx(text, source_tokens):
             token = str(token)
         word_start_idx = tmp_text.find(token) + accumulated_lenght
         word_end_idx = word_start_idx + len(token)
-        tokens_with_idx.append([token, (word_start_idx, word_end_idx)])
+        tokens_with_idx.append([token, [word_start_idx, word_end_idx]])
         accumulated_lenght = word_end_idx
         tmp_text = text[word_end_idx:]
     return tokens_with_idx
@@ -234,7 +234,7 @@ def add_sents_idx(text, source_sentences):
     for sent in source_sentences:
         sent_start_idx = tmp_text.find(sent) + accumulated_lenght
         sent_end_idx = sent_start_idx + len(sent)
-        sents_with_idx.append([sent, sent_start_idx, sent_end_idx])
+        sents_with_idx.append([sent, [sent_start_idx, sent_end_idx]])
         accumulated_lenght = sent_end_idx
         tmp_text = text[sent_end_idx:]
     return sents_with_idx
@@ -275,7 +275,7 @@ def token_level_edits(tokens1, tokens2):
     while n>=0 or m>=0:
         if n and dp[m][n-1]+1 == dp[m][n]:
             edit.append(['', tokens2[n-1]])
-            print("insert [%s]" %(tokens2[n-1]))
+            # print("insert [%s]" %(tokens2[n-1]))
             spokenstr.append("insert")
             writtenstr.append(tokens2[n-1])
             operation.append("NULLREF:"+tokens2[n-1])
@@ -283,7 +283,7 @@ def token_level_edits(tokens1, tokens2):
             continue
         if m and dp[m-1][n]+1 == dp[m][n]:
             edit.append([tokens1[m-1], ''])
-            print("delete [%s]" %(tokens1[m-1]))
+            # print("delete [%s]" %(tokens1[m-1]))
             spokenstr.append(tokens1[m-1])
             writtenstr.append("delete")
             operation.append(tokens1[m-1]+":NULLHYP")
@@ -291,7 +291,7 @@ def token_level_edits(tokens1, tokens2):
             continue
         if dp[m-1][n-1]+1 == dp[m][n]:
             edit.append([tokens1[m-1], tokens2[n-1]])
-            print("replace [%s] [%s]" %(tokens1[m-1],tokens2[n-1]))
+            # print("replace [%s] [%s]" %(tokens1[m-1],tokens2[n-1]))
             spokenstr.append(tokens1[m - 1])
             writtenstr.append(tokens2[n-1])
             operation.append(tokens1[m - 1] + ":"+tokens2[n-1])
@@ -300,7 +300,7 @@ def token_level_edits(tokens1, tokens2):
             continue
         if dp[m-1][n-1] == dp[m][n]:
             edit.append([tokens1[m-1], tokens1[m-1]])
-            print("keep")
+            # print("keep")
             spokenstr.append(' ')
             writtenstr.append(' ')
             operation.append(tokens1[m-1])
@@ -315,16 +315,16 @@ def token_level_edits(tokens1, tokens2):
 
 def backward_merge_corrections(orig_text, corrections):
     """
-    [['I', 'I', (0, 1)],
-    ['went', 'went', (2, 6)],
-    ['', 'to', (6, 6)],
-    ['school', 'school', (7, 13)]]
+    [['I', 'I', [0, 1]],
+    ['went', 'went', [2, 6]],
+    ['', 'to', [6, 6]],
+    ['school', 'school', [7, 13]]]
 
     ->
 
-    [['I', 'I', (0, 1)],
-    ['went', 'went to', (2, 6)],
-    ['school', 'school', (7, 13)]]
+    [['I', 'I', [0, 1]],
+    ['went', 'went to', [2, 6]],
+    ['school', 'school', [7, 13]]]
     """
     new_corrections = []
     i = len(corrections) - 1
@@ -344,7 +344,7 @@ def backward_merge_corrections(orig_text, corrections):
                     end_idx = remains[-1][2][1]
                     cor_sub_string = ' '.join([r[1] for r in remains])
                     orig_sub_string = orig_text[start_idx:end_idx]
-                    new_corrections.append([orig_sub_string, cor_sub_string, (start_idx, end_idx)])
+                    new_corrections.append([orig_sub_string, cor_sub_string, [start_idx, end_idx]])
                     remains = []
                     remains_len = 0
                     new_corrections.append(r)
@@ -361,7 +361,7 @@ def backward_merge_corrections(orig_text, corrections):
         end_idx = remains[-1][2][1]
         cor_sub_string = ' '.join([r[1] for r in remains])
         orig_sub_string = orig_text[start_idx:end_idx]
-        new_corrections.append([orig_sub_string, cor_sub_string, (start_idx, end_idx)])
+        new_corrections.append([orig_sub_string, cor_sub_string, [start_idx, end_idx]])
 
     new_corrections.append(corrections[0])
     new_corrections = new_corrections[::-1]
@@ -370,16 +370,16 @@ def backward_merge_corrections(orig_text, corrections):
 
 def forward_merge_corrections(orig_text, corrections):
     """
-    [['I', 'I', (0, 1)],
-    ['went', 'went', (2, 6)],
-    ['', 'to', (6, 6)],
-    ['school', 'school', (7, 13)]]
+    [['I', 'I', [0, 1]],
+    ['went', 'went', [2, 6]],
+    ['', 'to', [6, 6]],
+    ['school', 'school', [7, 13]]]
 
     ->
 
-    [['I', 'I', (0, 1)],
-    ['went', 'went', (2, 6)],
-    ['school', 'to school', (7, 13)]]
+    [['I', 'I', [0, 1]],
+    ['went', 'went', [2, 6]],
+    ['school', 'to school', [7, 13]]]
     """
     new_corrections = []
     i = 0
@@ -398,7 +398,7 @@ def forward_merge_corrections(orig_text, corrections):
                     end_idx = remains[-1][2][1]
                     cor_sub_string = ' '.join([r[1] for r in remains])
                     orig_sub_string = orig_text[start_idx:end_idx]
-                    new_corrections.append([orig_sub_string, cor_sub_string, (start_idx, end_idx)])
+                    new_corrections.append([orig_sub_string, cor_sub_string, [start_idx, end_idx]])
                     remains = []
                     remains_len = 0
                     new_corrections.append(r)
@@ -414,7 +414,7 @@ def forward_merge_corrections(orig_text, corrections):
         end_idx = remains[-1][2][1]
         cor_sub_string = ' '.join([r[1] for r in remains])
         orig_sub_string = orig_text[start_idx:end_idx]
-        new_corrections.append([orig_sub_string, cor_sub_string, (start_idx, end_idx)])
+        new_corrections.append([orig_sub_string, cor_sub_string, [start_idx, end_idx]])
 
     new_corrections.append(corrections[-1])
     return new_corrections
