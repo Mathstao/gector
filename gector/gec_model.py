@@ -495,10 +495,9 @@ class GecBERTModel(object):
 
             while edits_based_source[s] == '__PLACEHOLD__':
                 if source_end_idx == 0:
-                    source_start_idx = source_tokens_with_idx[s][1]
-                    source_end_idx = source_tokens_with_idx[s][2]
+                    source_start_idx, source_end_idx = source_tokens_with_idx[s][1]
                 else:
-                    source_end_idx = source_tokens_with_idx[s][2]
+                    _, source_end_idx = source_tokens_with_idx[s][1]
                 s += 1
 
             while edits_based_pred[p] == '__PLACEHOLD__':
@@ -520,10 +519,10 @@ class GecBERTModel(object):
             elif source_end_idx != 0 and pred_subgroup == []:
                 if s!=0:
                     # (source_substr + source_tokens[s]) -> pred_tokens[p]
-                    _, _, source_end_idx = source_tokens_with_idx[s]
+                    _, (_, source_end_idx) = source_tokens_with_idx[s]
                 else:
                     # (source_tokens[s-1] + source_substr) -> pred_tokens[p]
-                    _, source_start_idx, _ = source_tokens_with_idx[s-1]
+                    _, (source_start_idx, _) = source_tokens_with_idx[s-1]
                 source_substr = text[source_start_idx:source_end_idx] 
                 pred_substr = pred_tokens[p]
                 logging.info("index[{}:{}] {} -> {}".format(source_start_idx, source_end_idx, source_substr, pred_substr))
@@ -538,11 +537,11 @@ class GecBERTModel(object):
             elif source_end_idx == 0 and pred_subgroup != []:
                 if p!=0:
                     # source_tokens[s-1] -> pred_tokens[p-1-len(pred_subgroup)] + pred_subgroup
-                    _, source_start_idx, source_end_idx = source_tokens_with_idx[s-1]
+                    _, (source_start_idx, source_end_idx) = source_tokens_with_idx[s-1]
                     pred_substr = ' '.join( [pred_tokens[p-1-len(pred_subgroup)]] + pred_subgroup )
                 else:
                     # source_tokens[s] -> pred_subgroup + pred_tokens[p]
-                    _, source_start_idx, source_end_idx = source_tokens_with_idx[s]
+                    _, (source_start_idx, source_end_idx) = source_tokens_with_idx[s]
                     pred_substr = ' '.join( pred_subgroup + [pred_tokens[p]])
                 source_substr = text[source_start_idx:source_end_idx] 
                 logging.info("index[{}:{}] {} -> {}".format(source_start_idx, source_end_idx, source_substr, pred_substr))
